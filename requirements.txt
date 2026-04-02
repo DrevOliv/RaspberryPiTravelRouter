@@ -1,0 +1,4 @@
+fastapi
+qrcode
+requests
+uvicorn
