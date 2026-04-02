@@ -6,9 +6,9 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from TravelRouter.config_file.data_models import AuthData, DataModels
+from TravelRouter.config_file.data_models import DataModels
 
-DEFAULT_DATA_PATH = Path("data.json")
+DEFAULT_DATA_PATH = Path("./data/data.json")
 
 ModelType = TypeVar("ModelType", bound=BaseModel)
 
@@ -32,12 +32,31 @@ def _model_copy(model: ModelType) -> ModelType:
 
 
 class DataManager:
+    _instance = None
+    _instance_lock = Lock()
+
+    def __new__(cls, data_path: Path | None = None):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self, data_path: Path | None = None) -> None:
-        configured_path = data_path or Path(os.getenv("TRAVELROUTER_DATA_PATH", DEFAULT_DATA_PATH))
+        if getattr(self, "_initialized", False):
+            return
+
+        configured_path = data_path or Path(os.getenv("TRAVELROUTER_DATA_FILE_PATH", DEFAULT_DATA_PATH))
         self.data_path = configured_path
         self._lock = Lock()
         self._data = self._load_data()
         self._write_data()
+        self._initialized = True
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        with cls._instance_lock:
+            cls._instance = None
 
     def get_data(self) -> DataModels:
         with self._lock:
@@ -46,15 +65,6 @@ class DataManager:
     def set_data(self, data: DataModels) -> None:
         with self._lock:
             self._data = _model_copy(data)
-            self._write_data()
-
-    def get_auth_data(self) -> AuthData:
-        with self._lock:
-            return _model_copy(self._data.auth)
-
-    def set_auth_data(self, auth_data: AuthData) -> None:
-        with self._lock:
-            self._data.auth = _model_copy(auth_data)
             self._write_data()
 
     def _load_data(self) -> DataModels:

@@ -7,5 +7,8 @@ class AuthData(BaseModel):
     password_updated_at: float | None = None
 
 
+
+
+
 class DataModels(BaseModel):
     auth: AuthData = Field(default_factory=AuthData)

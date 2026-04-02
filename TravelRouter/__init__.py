@@ -54,11 +54,9 @@ def create_app() -> FastAPI:
         openapi_tags=OPENAPI_TAGS,
     )
 
-    data_manager = DataManager()
-    auth_manager = AuthManager(data_manager)
+    auth_manager = AuthManager()
     auth_manager.ensure_auth_data()
 
-    app.state.data_manager = data_manager
     app.state.auth_manager = auth_manager
 
     app.include_router(auth_api)

@@ -35,8 +35,8 @@ class SessionRecord:
 
 
 class AuthManager:
-    def __init__(self, data_manager: DataManager) -> None:
-        self.data_manager = data_manager
+    def __init__(self) -> None:
+        self.data_manager = DataManager()
         self.cookie_name = os.getenv("TRAVELROUTER_AUTH_COOKIE_NAME", DEFAULT_COOKIE_NAME)
         self.session_ttl_seconds = int(
             os.getenv("TRAVELROUTER_AUTH_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)
@@ -64,12 +64,20 @@ class AuthManager:
             password_updated_at=time.time(),
         )
 
+    def _get_auth_data(self) -> AuthData:
+        return self.data_manager.get_data().auth
+
+    def _set_auth_data(self, auth_data: AuthData) -> None:
+        data = self.data_manager.get_data()
+        data.auth = auth_data
+        self.data_manager.set_data(data)
+
     def has_password(self, auth_data: AuthData | None = None) -> bool:
-        active_auth_data = auth_data or self.data_manager.get_auth_data()
+        active_auth_data = auth_data or self._get_auth_data()
         return bool(active_auth_data.password_salt and active_auth_data.password_hash)
 
     def verify_password(self, password: str, auth_data: AuthData | None = None) -> bool:
-        active_auth_data = auth_data or self.data_manager.get_auth_data()
+        active_auth_data = auth_data or self._get_auth_data()
         if not self.has_password(active_auth_data):
             return False
 
@@ -79,11 +87,11 @@ class AuthManager:
         return hmac.compare_digest(password_hash, stored_hash)
 
     def ensure_auth_data(self) -> None:
-        auth_data = self.data_manager.get_auth_data()
+        auth_data = self._get_auth_data()
         if self.has_password(auth_data):
             return
 
-        self.data_manager.set_auth_data(self.build_auth_data(DEFAULT_TEMP_PASSWORD))
+        self._set_auth_data(self.build_auth_data(DEFAULT_TEMP_PASSWORD))
 
     def login(self, password: str, response: Response) -> None:
         if not self.verify_password(password):
@@ -117,7 +125,7 @@ class AuthManager:
                 detail="New password must be different from the current password",
             )
 
-        self.data_manager.set_auth_data(self.build_auth_data(new_password))
+        self._set_auth_data(self.build_auth_data(new_password))
         self.revoke_all_sessions()
         self.clear_session_cookie(response)
 
