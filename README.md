@@ -26,9 +26,9 @@ The project stores app configuration in a local `data.json` file and uses system
 
 ## Screenshots
 
-```md
+
 ![Dashboard](docs/screenshots/dashboard.png)
-```
+
 
 ## Tech Stack
 
