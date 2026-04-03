@@ -7,6 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
+from TravelRouter.components.rsync import router as rsync_router
 from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
@@ -86,6 +87,7 @@ def create_app() -> FastAPI:
 
     app.include_router(_pages_router)
     app.include_router(auth_api)
+    app.include_router(rsync_router)
     app.include_router(settings_router)
     app.include_router(tailscale_router)
     app.include_router(wifi_router)
