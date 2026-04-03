@@ -1,41 +1,55 @@
-from TravelRouter.components.tailscale.data_models import TailscaleStatus, ExitNodeServer
 import json
-from ipaddress import ip_address, ip_network
 
-def parse_tailscale_status(stdout:str)->TailscaleStatus:
-    json_data = json.loads(stdout)
+from TravelRouter.components.tailscale.data_models import ExitNodeServer, TailscaleStatus
+
+
+def _self_online(self_data: dict) -> bool:
+    return bool(self_data.get("Online", False))
+
+
+def _active_exit_node_ip(json_data: dict) -> str | None:
+    exit_node_status = json_data.get("ExitNodeStatus")
+    if not exit_node_status:
+        return None
+
+    tailscale_ips = exit_node_status.get("TailscaleIPs") or []
+    return tailscale_ips[0] if tailscale_ips else None
+
+
+def parse_tailscale_status(stdout: str) -> TailscaleStatus:
+    json_data = json.loads(stdout or "{}")
+    self_data = json_data.get("Self") or {}
+    active_exit_node_ip = _active_exit_node_ip(json_data)
 
     # Finding if tailscale is connected to an exit-node
-    if "ExitNodeStatus" in json_data:
-        exit_node = True
-        exit_node_server = json_data["ExitNodeStatus"]["TailscaleIPs"][0]
-        exit_node_network = ip_network(exit_node_server)
-    else:
-        exit_node = False
-        exit_node_server = None
+    exit_node = active_exit_node_ip is not None
+    exit_node_server = active_exit_node_ip
 
     # Finding the server that advertise exit-node
     exit_node_servers = []
 
-    for peer in json_data['Peer']:
-        peer_values = json_data['Peer'][peer]
+    for peer_values in (json_data.get("Peer") or {}).values():
+        if not peer_values.get("ExitNodeOption"):
+            continue
 
-        if peer_values['ExitNodeOption'] == True:
-            exit_node_servers.append(
-                ExitNodeServer(hostname=peer_values["HostName"],
-                               ip_address=peer_values["TailscaleIPs"][0],
-                               dns_name=peer_values["DNSName"],
-                               )
+        peer_ips = peer_values.get("TailscaleIPs") or []
+        peer_ip = peer_ips[0] if peer_ips else ""
+        hostname = peer_values.get("HostName", "")
+
+        exit_node_servers.append(
+            ExitNodeServer(
+                hostname=hostname,
+                ip_address=peer_ip,
+                dns_name=peer_values.get("DNSName", ""),
             )
-            # Finding the hostname of the exit-node
-            ip_address_exit_node = ip_address(peer_values["TailscaleIPs"][0])
+        )
 
-            if ip_address_exit_node in exit_node_network:
-                exit_node_server = peer_values["HostName"]
+        if active_exit_node_ip and active_exit_node_ip in peer_ips:
+            exit_node_server = hostname
 
     return TailscaleStatus(
-        online=json_data['Self']['online'],
+        online=_self_online(self_data),
         exit_node=exit_node,
         exit_node_server=exit_node_server,
-        exit_node_servers=exit_node_servers
+        exit_node_servers=exit_node_servers,
     )

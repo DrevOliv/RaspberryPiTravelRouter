@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Response
+from fastapi import APIRouter
 from TravelRouter.config_file import DataManager
 
 from TravelRouter.helpers.api_response import ApiResponse
@@ -7,9 +7,7 @@ from TravelRouter.components.tailscale.data_models import (
     ExitNodeSelectionBody,
 )
 
-from TravelRouter.components.tailscale.functions import (
-    parse_tailscale_status
-)
+from TravelRouter.components.tailscale.functions import parse_tailscale_status
 
 from TravelRouter.components.tailscale.system_api import (
     tailscale_status,
@@ -44,6 +42,7 @@ def get_tailscale_status() -> ApiResponse:
 )
 async def api_tailscale_status():
     return get_tailscale_status()
+
 
 @router.post(
     "/tailscale/selection",
@@ -87,6 +86,7 @@ async def api_tailscale_set_exit_node():
 
     return get_tailscale_status()
 
+
 @router.get(
     "/tailscale/disable-exit-node",
     response_model=ApiResponse,
@@ -94,7 +94,7 @@ async def api_tailscale_set_exit_node():
     summary="Disables the exit node",
     description="Disables the exit node, so that data does not go thought the exit node",
 )
-async def api_tailscale_set_exit_node():
+async def api_tailscale_disable_exit_node():
 
     result = tailscale_disable_exit_node()
     if not result.success:
@@ -111,7 +111,6 @@ async def api_tailscale_set_exit_node():
     description="Sets so tailscale get online onto the tailnet",
 )
 async def api_tailscale_up():
-
     status = tailscale_up()
     if not status.success:
         return ApiResponse(msg=f"error setting tailscale to up: {status.stderr}")
@@ -126,7 +125,7 @@ async def api_tailscale_up():
     summary="Set tailscale down",
     description="Sets so tailscale goes offline from the tailnet",
 )
-async def api_tailscale_up():
+async def api_tailscale_down():
     status = tailscale_down()
     if not status.success:
         return ApiResponse(msg=f"error setting tailscale to down: {status.stderr}")
