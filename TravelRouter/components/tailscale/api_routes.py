@@ -2,6 +2,7 @@ from fastapi import APIRouter
 from TravelRouter.config_file import DataManager
 
 from TravelRouter.helpers.api_response import ApiResponse
+from TravelRouter.helpers.run_command import run_in_thread
 
 from TravelRouter.components.tailscale.data_models import (
     ExitNodeSelectionBody,
@@ -23,8 +24,8 @@ router = APIRouter()
 data_manager = DataManager()
 
 
-def get_tailscale_status() -> ApiResponse:
-    status = tailscale_status()
+async def get_tailscale_status() -> ApiResponse:
+    status = await run_in_thread(tailscale_status)
     if not status.success:
         return ApiResponse(msg=f"error getting tailscale status: {status.stderr}")
 
@@ -41,7 +42,7 @@ def get_tailscale_status() -> ApiResponse:
     description="Gets the current tailscale status, exit node and if its online and so on",
 )
 async def api_tailscale_status():
-    return get_tailscale_status()
+    return await get_tailscale_status()
 
 
 @router.post(
@@ -80,11 +81,11 @@ async def api_tailscale_set_exit_node():
     if not exit_node_name:
         return ApiResponse(msg="Choose an exit node first")
 
-    result = tailscale_set_exit_node(exit_node_name)
+    result = await run_in_thread(tailscale_set_exit_node, exit_node_name)
     if not result.success:
         return ApiResponse(msg=f"error setting exit node {result.stderr}")
 
-    return get_tailscale_status()
+    return await get_tailscale_status()
 
 
 @router.get(
@@ -96,11 +97,11 @@ async def api_tailscale_set_exit_node():
 )
 async def api_tailscale_disable_exit_node():
 
-    result = tailscale_disable_exit_node()
+    result = await run_in_thread(tailscale_disable_exit_node)
     if not result.success:
         return ApiResponse(msg=f"error disabling exit node {result.stderr}")
 
-    return get_tailscale_status()
+    return await get_tailscale_status()
 
 
 @router.get(
@@ -111,11 +112,11 @@ async def api_tailscale_disable_exit_node():
     description="Sets so tailscale get online onto the tailnet",
 )
 async def api_tailscale_up():
-    status = tailscale_up()
+    status = await run_in_thread(tailscale_up)
     if not status.success:
         return ApiResponse(msg=f"error setting tailscale to up: {status.stderr}")
 
-    return get_tailscale_status()
+    return await get_tailscale_status()
 
 
 @router.get(
@@ -126,8 +127,8 @@ async def api_tailscale_up():
     description="Sets so tailscale goes offline from the tailnet",
 )
 async def api_tailscale_down():
-    status = tailscale_down()
+    status = await run_in_thread(tailscale_down)
     if not status.success:
         return ApiResponse(msg=f"error setting tailscale to down: {status.stderr}")
 
-    return get_tailscale_status()
+    return await get_tailscale_status()

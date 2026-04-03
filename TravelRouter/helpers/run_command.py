@@ -1,7 +1,14 @@
+import asyncio
 import re
 import shlex
 import subprocess
+from collections.abc import Callable
+from typing import TypeVar
+
 from pydantic import BaseModel
+
+
+ResultType = TypeVar("ResultType")
 
 
 class CmdStatus(BaseModel):
@@ -43,3 +50,11 @@ def run_command(command: list[str], timeout: int = 20) -> CmdStatus:
         stderr=stderr,
         command=" ".join(shlex.quote(part) for part in command)
     )
+
+
+async def run_in_thread(
+    func: Callable[..., ResultType],
+    *args,
+    **kwargs,
+) -> ResultType:
+    return await asyncio.to_thread(func, *args, **kwargs)

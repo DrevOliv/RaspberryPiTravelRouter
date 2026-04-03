@@ -2,6 +2,7 @@ from fastapi import APIRouter, Response
 from TravelRouter.config_file import DataManager
 
 from TravelRouter.helpers.api_response import ApiResponse
+from TravelRouter.helpers.run_command import run_in_thread
 
 from TravelRouter.components.wifi.functions import (
     wifi_qr_svg,
@@ -43,7 +44,12 @@ data_manager = DataManager()
 )
 async def api_wifi_connect(body: WifiConnectBody):
     settings = data_manager.get_data()
-    result = connect_wifi(settings.wifi.upstream_interface, body.ssid.strip(), body.password.strip() or None)
+    result = await run_in_thread(
+        connect_wifi,
+        settings.wifi.upstream_interface,
+        body.ssid.strip(),
+        body.password.strip() or None,
+    )
     if not result.success:
         return ApiResponse(msg=result)
     clean_ssid = body.ssid.strip()
@@ -59,7 +65,7 @@ async def api_wifi_connect(body: WifiConnectBody):
 )
 async def api_wifi_disconnect():
     settings = data_manager.get_data()
-    result = disconnect_wifi(settings.wifi.upstream_interface)
+    result = await run_in_thread(disconnect_wifi, settings.wifi.upstream_interface)
     if not result.success:
         return ApiResponse(msg=result)
     return ApiResponse(success=True, msg="Wi-Fi disconnected")
@@ -93,14 +99,14 @@ async def api_home_wifi_live():
     settings = data_manager.get_data()
 
     # Scan for other networks
-    result = scan_for_wifi_networks(settings.wifi.upstream_interface)
+    result = await run_in_thread(scan_for_wifi_networks, settings.wifi.upstream_interface)
     if not result.success:
         return ApiResponse(msg=result)
 
     wifi_networks = parse_wifi_scan_rows(result.stdout)
 
     # Get connected network
-    result = get_connected_network(settings.wifi.upstream_interface)
+    result = await run_in_thread(get_connected_network, settings.wifi.upstream_interface)
     if not result.success:
         return ApiResponse(msg=result)
 
@@ -110,7 +116,7 @@ async def api_home_wifi_live():
                        msg=WifiLiveResponse(
                            wifi_networks=wifi_networks,
                            wifi_current=current_network,
-                           connected_devices=ap_connected_devices(settings.wifi.ap_interface),     # Get connected devices to AP
+                           connected_devices=await run_in_thread(ap_connected_devices, settings.wifi.ap_interface),
                        ),
                        msg_type="json")
 
@@ -140,7 +146,7 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
     ap_ssid = body.ap_ssid.strip()
     if not ap_ssid:
         return ApiResponse(msg=f"SSID cannot be empty")
-    result = apply_ap_ssid(ap_ssid)
+    result = await run_in_thread(apply_ap_ssid, ap_ssid)
     if not result.success:
         return ApiResponse(msg=result)
 
@@ -160,7 +166,7 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
     description="Updates the private AP password on the existing NetworkManager access-point profile.",
 )
 async def api_wifi_ap_password(body: ApPasswordBody):
-    result = apply_ap_password(body.ap_password.strip())
+    result = await run_in_thread(apply_ap_password, body.ap_password.strip())
     if not result.success:
         return ApiResponse(msg=result)
     settings = data_manager.get_data()
@@ -168,4 +174,3 @@ async def api_wifi_ap_password(body: ApPasswordBody):
     data_manager.set_data(settings)
 
     return ApiResponse(success=True, msg="AP password saved")
-
