@@ -38,6 +38,18 @@ async def _serve_settings_page() -> FileResponse:
 async def _serve_drives_page() -> FileResponse:
     return FileResponse(os.path.join(_STATIC_DIR, "drives.html"))
 
+
+@_pages_router.get(
+    "/api/health",
+    response_model=ApiResponse,
+    tags=["meta"],
+    summary="Health check",
+    description="Check that the backend API is running.",
+)
+async def _health_check() -> ApiResponse:
+    return ApiResponse(success=True, msg="ok")
+
+
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
     "API for the Pi Travel Router web UI, including Wi-Fi, Tailscale, Jellyfin, "
