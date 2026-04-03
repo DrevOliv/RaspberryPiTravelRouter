@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Travel Router</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a class="brand" href="/">
+    <div class="brand-icon">&#x1F4F6;</div>
+    Travel Router
+  </a>
+  <div class="nav-spacer"></div>
+  <a href="/settings-page" class="nav-btn">&#x2699;&#xFE0F; Settings</a>
+  <button class="nav-btn" id="logout-btn">Sign out</button>
+</nav>
+
+<div class="page">
+
+  <!-- Status bar -->
+  <div class="status-bar">
+    <div class="chip">
+      <div class="dot" id="wifi-dot"></div>
+      <span class="chip-label">WiFi</span>
+      <span class="chip-val" id="wifi-chip-val">—</span>
+    </div>
+    <div class="chip">
+      <div class="dot" id="ts-dot"></div>
+      <span class="chip-label">Tailscale</span>
+      <span class="chip-val" id="ts-chip-val">—</span>
+    </div>
+    <div class="chip" style="cursor:pointer;" id="qr-chip" title="Show AP QR code">
+      <span>&#x1F4F2;</span>
+      <span class="chip-label">AP QR</span>
+    </div>
+  </div>
+
+  <!-- Main grid -->
+  <div class="grid-2">
+
+    <!-- LEFT: WiFi Networks -->
+    <div class="col">
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">
+            <span>&#x1F4F6;</span> Networks
+          </div>
+          <span class="badge" id="net-badge">—</span>
+        </div>
+        <div id="networks-body">
+          <!-- skeleton -->
+          <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+            <div class="skel" style="height:38px;"></div>
+            <div class="skel" style="height:38px;"></div>
+            <div class="skel" style="height:38px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Tailscale + Devices -->
+    <div class="col">
+
+      <!-- Tailscale -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title"><span>&#x1F310;</span> Tailscale</div>
+        </div>
+        <div class="ts-body">
+          <div class="ts-icon">&#x1F310;</div>
+          <div class="ts-info">
+            <div class="ts-state" id="ts-state">—</div>
+            <div class="ts-node"  id="ts-node-label"></div>
+          </div>
+          <button class="btn btn-sm btn-secondary" id="ts-toggle-btn" onclick="handleTsToggle()" disabled>
+            …
+          </button>
+        </div>
+        <div class="toggle-row" id="exit-node-row">
+          <div class="toggle-info">
+            <div class="toggle-lbl">Exit Node</div>
+            <div class="toggle-sub" id="exit-node-sub">No exit node selected</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="exit-toggle" onchange="handleExitToggle(this.checked)" disabled>
+            <span class="track"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Connected devices -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title"><span>&#x1F4BB;</span> Connected Devices</div>
+          <span class="badge" id="dev-badge">—</span>
+        </div>
+        <div id="devices-body">
+          <div class="card-empty">Loading…</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Toast container -->
+<div id="toasts"></div>
+
+<!-- QR modal (hidden) -->
+<div class="modal-backdrop" id="qr-modal" style="display:none;" onclick="closeQr(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3>AP QR Code</h3>
+    <p>Scan to connect to the travel router access point</p>
+    <div id="qr-content">Loading…</div>
+    <button class="btn btn-secondary modal-close" onclick="closeQr()">Close</button>
+  </div>
+</div>
+
+<script>
+// ─── Utilities ──────────────────────────────────────────────────────────────
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;');
+}
+
+async function api(method, url, body) {
+  try {
+    const opts = { method, credentials: 'include', headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(url, opts);
+    if (res.status === 401 || res.status === 403) {
+      window.location.href = '/login';
+      return null;
+    }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 250);
+  }, 3500);
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+
+let tsStatus       = null;
+let connectingSSID = null;
+let wifiBusy       = false;
+let tsBusy         = false;
+let firstWifi      = true;
+let firstTs        = true;
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+async function checkAuth() {
+  const r = await api('GET', '/api/auth/session');
+  return r !== null; // null = redirected to login
+}
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await api('POST', '/api/auth/logout');
+  window.location.href = '/login';
+});
+
+// ─── WiFi polling (every 1 s) ────────────────────────────────────────────────
+
+async function pollWifi() {
+  if (wifiBusy) return;
+  wifiBusy = true;
+  try {
+    const r = await api('GET', '/wifi/wifi-live');
+    if (r && r.success) {
+      updateWifiChip(r.msg.wifi_current);
+      renderNetworks(r.msg.wifi_networks, r.msg.wifi_current);
+      renderDevices(r.msg.connected_devices);
+      firstWifi = false;
+    }
+  } finally {
+    wifiBusy = false;
+  }
+}
+
+// ─── Tailscale polling (every 4 s) ──────────────────────────────────────────
+
+async function pollTs() {
+  if (tsBusy) return;
+  tsBusy = true;
+  try {
+    const r = await api('GET', '/tailscale/status');
+    if (r && r.success) {
+      tsStatus = r.msg;
+      updateTsUI(r.msg);
+      firstTs = false;
+    }
+  } finally {
+    tsBusy = false;
+  }
+}
+
+// ─── UI: WiFi status chip ───────────────────────────────────────────────────
+
+function updateWifiChip(current) {
+  const connected = current && current.ssid && current.ssid !== '--';
+  document.getElementById('wifi-dot').className  = 'dot ' + (connected ? 'green' : 'red');
+  document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : 'Not connected';
+}
+
+// ─── UI: Network list ────────────────────────────────────────────────────────
+
+function signalBars(sig) {
+  const n = sig > 75 ? 4 : sig > 50 ? 3 : sig > 25 ? 2 : 1;
+  return [1,2,3,4].map(i => `<div class="bar${i<=n?' on':''}"></div>`).join('');
+}
+
+function renderNetworks(networks, current) {
+  const body    = document.getElementById('networks-body');
+  const badge   = document.getElementById('net-badge');
+  badge.textContent = networks.length;
+
+  if (!networks.length) {
+    body.innerHTML = '<div class="card-empty">No networks found</div>';
+    return;
+  }
+
+  const connSSID = (current && current.ssid !== '--') ? current.ssid : null;
+
+  // Sort: connected first, then by signal desc
+  const sorted = [...networks].sort((a, b) => {
+    if (a.ssid === connSSID) return -1;
+    if (b.ssid === connSSID) return  1;
+    return b.signal - a.signal;
+  });
+
+  // Check if list order has changed — avoid full rebuild if only signal changed
+  const existing = [...body.querySelectorAll('.net-item')].map(el => el.dataset.ssid);
+  const incoming = sorted.map(n => n.ssid);
+  const sameOrder = existing.length === incoming.length && existing.every((s,i) => s === incoming[i]);
+
+  if (sameOrder) {
+    // Just refresh signal bars + connection badges without disturbing open forms
+    sorted.forEach(net => {
+      const item = body.querySelector(`.net-item[data-ssid="${CSS.escape(net.ssid)}"]`);
+      if (!item) return;
+      const sigEl = item.querySelector('.signal');
+      if (sigEl) sigEl.innerHTML = signalBars(net.signal);
+
+      const isConn = net.ssid === connSSID;
+      item.classList.toggle('is-connected',  isConn);
+      item.classList.toggle('is-connecting', net.ssid === connectingSSID);
+
+      const badge = item.querySelector('.net-badge');
+      if (isConn && !badge) {
+        item.querySelector('.net-meta').insertAdjacentHTML('beforeend',
+          '<span class="net-badge connected">Connected</span>');
+      } else if (!isConn && badge) {
+        badge.remove();
+      }
+    });
+    return;
+  }
+
+  // Full rebuild
+  body.innerHTML = '';
+  sorted.forEach(net => {
+    const item = document.createElement('div');
+    item.className = 'net-item'
+      + (net.ssid === connSSID        ? ' is-connected'  : '')
+      + (net.ssid === connectingSSID  ? ' is-connecting' : '');
+    item.dataset.ssid   = net.ssid;
+    item.dataset.open   = net.is_open;
+    item.dataset.sec    = net.security;
+
+    const row = document.createElement('div');
+    row.className = 'net-row';
+    row.innerHTML = `
+      <span style="font-size:14px;width:18px;text-align:center;flex-shrink:0;color:var(--text-sub)">
+        ${net.is_open ? '&#x1F513;' : '&#x1F512;'}
+      </span>
+      <div class="net-ssid">${esc(net.ssid)}</div>
+      <div class="net-meta">
+        ${!net.is_open ? `<span class="sec-tag">${esc(net.security)}</span>` : ''}
+        <div class="signal">${signalBars(net.signal)}</div>
+        ${net.ssid === connSSID
+          ? '<span class="net-badge connected">Connected</span>'
+          : net.ssid === connectingSSID
+            ? '<span class="net-badge connecting">Connecting…</span>'
+            : ''}
+      </div>`;
+
+    row.addEventListener('click', () => toggleConnectForm(item));
+    item.appendChild(row);
+    body.appendChild(item);
+  });
+}
+
+function toggleConnectForm(item) {
+  const existing = item.querySelector('.connect-form');
+  if (existing) { existing.remove(); return; }
+
+  // Close any other open form
+  document.querySelectorAll('.connect-form').forEach(f => f.remove());
+
+  const ssid   = item.dataset.ssid;
+  const isOpen = item.dataset.open === 'true';
+  const isConn = item.classList.contains('is-connected');
+
+  const form = document.createElement('div');
+  form.className = 'connect-form';
+
+  const row = document.createElement('div');
+  row.className = 'form-row';
+
+  let pwInput = null;
+  if (!isOpen && !isConn) {
+    pwInput = document.createElement('input');
+    pwInput.type        = 'password';
+    pwInput.placeholder = 'Password';
+    pwInput.style.flex  = '1';
+    row.appendChild(pwInput);
+  }
+
+  const connectBtn = document.createElement('button');
+  connectBtn.className = 'btn btn-primary btn-sm';
+  connectBtn.textContent = isConn ? 'Reconnect' : 'Connect';
+  connectBtn.addEventListener('click', () => {
+    doConnect(ssid, isOpen, pwInput ? pwInput.value : '');
+  });
+
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className   = 'btn btn-ghost btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  cancelBtn.addEventListener('click', () => form.remove());
+
+  row.appendChild(connectBtn);
+  row.appendChild(cancelBtn);
+  form.appendChild(row);
+  item.appendChild(form);
+
+  if (pwInput) {
+    pwInput.focus();
+    pwInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') doConnect(ssid, isOpen, pwInput.value);
+    });
+  }
+}
+
+async function doConnect(ssid, isOpen, password) {
+  // Close form, mark as connecting
+  document.querySelectorAll('.connect-form').forEach(f => f.remove());
+  connectingSSID = ssid;
+
+  const item = document.querySelector(`.net-item[data-ssid="${CSS.escape(ssid)}"]`);
+  if (item) {
+    item.classList.add('is-connecting');
+    const badge = item.querySelector('.net-badge');
+    if (badge) { badge.className = 'net-badge connecting'; badge.textContent = 'Connecting…'; }
+    else item.querySelector('.net-meta')
+      .insertAdjacentHTML('beforeend', '<span class="net-badge connecting">Connecting…</span>');
+  }
+
+  const body = { ssid };
+  if (!isOpen && password) body.password = password;
+
+  const r = await api('POST', '/wifi/connect', body);
+  connectingSSID = null;
+
+  if (r && r.success) {
+    toast(`Connected to ${ssid}`, 'success');
+  } else {
+    const msg = r && typeof r.msg === 'string' ? r.msg : 'Connection failed';
+    toast(msg, 'error');
+    if (item) item.classList.remove('is-connecting');
+  }
+}
+
+// ─── UI: Devices ─────────────────────────────────────────────────────────────
+
+function renderDevices(devices) {
+  const body  = document.getElementById('devices-body');
+  const badge = document.getElementById('dev-badge');
+  badge.textContent = devices.length;
+
+  if (!devices.length) {
+    body.innerHTML = '<div class="card-empty">No devices connected</div>';
+    return;
+  }
+
+  body.innerHTML = devices.map(d => `
+    <div class="dev-row">
+      <div class="dev-icon">&#x1F4BB;</div>
+      <div class="dev-info">
+        <div class="dev-name">${esc(d.name)}</div>
+        <div class="dev-mac">${esc(d.mac)}</div>
+      </div>
+      <div class="dev-ip">${esc(d.ip)}</div>
+    </div>`).join('');
+}
+
+// ─── UI: Tailscale ───────────────────────────────────────────────────────────
+
+function updateTsUI(s) {
+  document.getElementById('ts-dot').className       = 'dot ' + (s.online ? 'green' : 'red');
+  document.getElementById('ts-chip-val').textContent = s.online ? 'Online' : 'Offline';
+
+  const stateEl = document.getElementById('ts-state');
+  stateEl.textContent  = s.online ? 'Online' : 'Offline';
+  stateEl.style.color  = s.online ? 'var(--green)' : 'var(--red)';
+
+  const nodeEl = document.getElementById('ts-node-label');
+  nodeEl.textContent = s.exit_node_server
+    ? 'Exit: ' + s.exit_node_server
+    : (s.online ? 'No exit node active' : '');
+
+  const btn = document.getElementById('ts-toggle-btn');
+  btn.disabled    = false;
+  btn.textContent = s.online ? 'Disconnect' : 'Connect';
+  btn.className   = 'btn btn-sm ' + (s.online ? 'btn-danger' : 'btn-primary');
+
+  const toggle = document.getElementById('exit-toggle');
+  toggle.disabled = !s.online;
+  toggle.checked  = !!s.exit_node;
+
+  const sub = document.getElementById('exit-node-sub');
+  sub.textContent = s.exit_node_server
+    ? s.exit_node_server
+    : 'Select an exit node in Settings';
+}
+
+async function handleTsToggle() {
+  if (!tsStatus) return;
+  const btn = document.getElementById('ts-toggle-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span>';
+
+  const endpoint = tsStatus.online ? '/tailscale/down' : '/tailscale/up';
+  const r = await api('GET', endpoint);
+
+  if (r && r.success) {
+    tsStatus = r.msg;
+    updateTsUI(r.msg);
+    toast(r.msg.online ? 'Tailscale online' : 'Tailscale offline', 'success');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Action failed', 'error');
+    btn.disabled = false;
+    btn.textContent = tsStatus.online ? 'Disconnect' : 'Connect';
+  }
+}
+
+async function handleExitToggle(enable) {
+  const toggle = document.getElementById('exit-toggle');
+  toggle.disabled = true;
+
+  const r = await api('GET', enable ? '/tailscale/set-exit-node' : '/tailscale/disable-exit-node');
+  toggle.disabled = false;
+
+  if (r && r.success) {
+    tsStatus = r.msg;
+    updateTsUI(r.msg);
+    toast(enable ? 'Exit node enabled' : 'Exit node disabled', 'success');
+  } else {
+    toggle.checked = !enable; // revert
+    const msg = r && typeof r.msg === 'string' ? r.msg : '';
+    if (msg.toLowerCase().includes('choose')) {
+      toast('Select an exit node in Settings first', 'warning');
+    } else {
+      toast(msg || 'Action failed', 'error');
+    }
+  }
+}
+
+// ─── QR Code ─────────────────────────────────────────────────────────────────
+
+document.getElementById('qr-chip').addEventListener('click', openQr);
+
+async function openQr() {
+  document.getElementById('qr-modal').style.display = 'flex';
+  document.getElementById('qr-content').innerHTML = '<div class="skel" style="height:200px;width:200px;margin:auto;"></div>';
+  try {
+    const res = await fetch('/wifi/ap-qr', { credentials: 'include' });
+    if (res.ok) {
+      const svg = await res.text();
+      document.getElementById('qr-content').innerHTML = svg;
+    } else {
+      document.getElementById('qr-content').textContent = 'Could not load QR code';
+    }
+  } catch {
+    document.getElementById('qr-content').textContent = 'Network error';
+  }
+}
+
+function closeQr(e) {
+  if (!e || e.target === document.getElementById('qr-modal')) {
+    document.getElementById('qr-modal').style.display = 'none';
+  }
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
+(async () => {
+  const ok = await checkAuth();
+  if (!ok) return;
+
+  // Kick off both polls immediately
+  pollWifi();
+  pollTs();
+
+  setInterval(pollWifi, 1000);
+  setInterval(pollTs,   4000);
+})();
+</script>
+</body>
+</html>

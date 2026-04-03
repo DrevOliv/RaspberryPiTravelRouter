@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Travel Router</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<nav class="navbar">
+  <a class="brand" href="/">
+    <div class="brand-icon">&#x1F4F6;</div>
+    Travel Router
+  </a>
+  <div class="nav-spacer"></div>
+  <a href="/" class="nav-btn">&#x2190; Dashboard</a>
+  <button class="nav-btn" id="logout-btn">Sign out</button>
+</nav>
+
+<div class="page">
+  <div class="settings-stack">
+
+    <!-- ── Access Point ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F4F6;</span> Access Point</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Hotspot Settings</div>
+        <div class="form-gap">
+          <div class="field-row">
+            <div class="field">
+              <label for="ap-ssid">Network Name (SSID)</label>
+              <input type="text" id="ap-ssid" placeholder="e.g. TravelRouter" maxlength="32">
+            </div>
+            <div class="field">
+              <label for="ap-pw">Password</label>
+              <input type="password" id="ap-pw" placeholder="Min 8 characters" minlength="8">
+            </div>
+          </div>
+          <p class="hint">Leave a field blank to keep the current value unchanged.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-primary" id="save-ap-btn" onclick="saveAP()">Save AP Settings</button>
+          </div>
+          <div id="ap-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Tailscale ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F310;</span> Tailscale</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Exit Node</div>
+        <div class="form-gap">
+          <p class="hint" id="ts-hint">Loading available exit nodes…</p>
+          <div class="field">
+            <label for="exit-select">Preferred Exit Node</label>
+            <select id="exit-select" disabled>
+              <option value="">— Loading… —</option>
+            </select>
+          </div>
+          <div>
+            <button class="btn btn-primary" id="save-exit-btn" onclick="saveExitNode()" disabled>
+              Save Exit Node
+            </button>
+          </div>
+          <div id="exit-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Password ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F512;</span> Login Password</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Change Password</div>
+        <div class="form-gap">
+          <div class="field">
+            <label for="cur-pw">Current Password</label>
+            <input type="password" id="cur-pw" placeholder="Current password" autocomplete="current-password">
+          </div>
+          <div class="field-row">
+            <div class="field">
+              <label for="new-pw">New Password</label>
+              <input type="password" id="new-pw" placeholder="Min 12 characters" minlength="12" autocomplete="new-password">
+            </div>
+            <div class="field">
+              <label for="confirm-pw">Confirm Password</label>
+              <input type="password" id="confirm-pw" placeholder="Repeat new password" autocomplete="new-password">
+            </div>
+          </div>
+          <p class="hint">Minimum 12 characters. Must differ from your current password.</p>
+          <div>
+            <button class="btn btn-primary" id="save-pw-btn" onclick="changePassword()">Change Password</button>
+          </div>
+          <div id="pw-status"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+// ─── Utilities ───────────────────────────────────────────────────────────────
+
+async function api(method, url, body) {
+  try {
+    const opts = { method, credentials: 'include', headers: {} };
+    if (body !== undefined) {
+      opts.headers['Content-Type'] = 'application/json';
+      opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(url, opts);
+    if (res.status === 401 || res.status === 403) {
+      window.location.href = '/login';
+      return null;
+    }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toasts');
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  c.appendChild(el);
+  requestAnimationFrame(() => requestAnimationFrame(() => el.classList.add('show')));
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 250);
+  }, 3500);
+}
+
+function setStatus(id, msg, ok) {
+  const el = document.getElementById(id);
+  el.style.fontSize   = '13px';
+  el.style.marginTop  = '4px';
+  el.style.color      = ok ? 'var(--green)' : 'var(--red)';
+  el.textContent      = msg;
+  setTimeout(() => { el.textContent = ''; }, 5000);
+}
+
+function setBusy(btnId, busy, label) {
+  const btn = document.getElementById(btnId);
+  btn.disabled = busy;
+  btn.innerHTML = busy ? '<span class="spin"></span>' : label;
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+document.getElementById('logout-btn').addEventListener('click', async () => {
+  await api('POST', '/api/auth/logout');
+  window.location.href = '/login';
+});
+
+// ─── Load Tailscale exit nodes ───────────────────────────────────────────────
+
+async function loadExitNodes() {
+  const hint   = document.getElementById('ts-hint');
+  const select = document.getElementById('exit-select');
+  const btn    = document.getElementById('save-exit-btn');
+
+  const [tsRes, cfgRes] = await Promise.all([
+    api('GET', '/tailscale/status'),
+    api('GET', '/settings/config'),
+  ]);
+
+  if (!tsRes || !tsRes.success) {
+    hint.textContent = 'Could not load Tailscale status.';
+    return;
+  }
+
+  const status  = tsRes.msg;
+  const nodes   = status.exit_node_servers || [];
+  // Saved preference takes priority; fall back to the currently active node
+  const savedNode = (cfgRes && cfgRes.success && cfgRes.msg.exit_node) || status.exit_node_server || '';
+
+  if (!status.online) {
+    hint.textContent = 'Tailscale is offline — connect first to see exit nodes.';
+    return;
+  }
+
+  if (!nodes.length) {
+    hint.textContent = 'No exit nodes available on your Tailscale network.';
+    return;
+  }
+
+  hint.textContent = `${nodes.length} exit node${nodes.length !== 1 ? 's' : ''} available.`
+    + (savedNode ? `  Saved: ${savedNode}` : '');
+
+  select.innerHTML = '<option value="">— Select exit node —</option>';
+  nodes.forEach(n => {
+    const opt = document.createElement('option');
+    opt.value       = n.hostname;
+    opt.textContent = `${n.hostname}  (${n.ip_address})`;
+    if (savedNode && n.hostname === savedNode) opt.selected = true;
+    select.appendChild(opt);
+  });
+
+  select.disabled = false;
+  btn.disabled    = false;
+}
+
+// ─── Save AP Settings ────────────────────────────────────────────────────────
+
+async function saveAP() {
+  const ssid = document.getElementById('ap-ssid').value.trim();
+  const pw   = document.getElementById('ap-pw').value.trim();
+
+  if (!ssid && !pw) {
+    setStatus('ap-status', 'Enter at least one value to update.', false);
+    return;
+  }
+
+  setBusy('save-ap-btn', true, 'Save AP Settings');
+
+  let ok  = true;
+  let msg = [];
+
+  if (ssid) {
+    const r = await api('POST', '/settings/wifi/ap-ssid', { ap_ssid: ssid });
+    if (r && r.success) {
+      msg.push('SSID updated');
+      document.getElementById('ap-ssid').value = '';
+    } else {
+      ok = false;
+      msg.push((r && typeof r.msg === 'string' ? r.msg : null) || 'SSID update failed');
+    }
+  }
+
+  if (pw) {
+    if (pw.length < 8) {
+      ok = false;
+      msg.push('Password must be at least 8 characters');
+    } else {
+      const r = await api('POST', '/settings/wifi/ap-password', { ap_password: pw });
+      if (r && r.success) {
+        msg.push('Password updated');
+        document.getElementById('ap-pw').value = '';
+      } else {
+        ok = false;
+        msg.push((r && typeof r.msg === 'string' ? r.msg : null) || 'Password update failed');
+      }
+    }
+  }
+
+  setBusy('save-ap-btn', false, 'Save AP Settings');
+  setStatus('ap-status', msg.join(' · '), ok);
+  toast(msg.join(' · '), ok ? 'success' : 'error');
+}
+
+// ─── Save Exit Node ──────────────────────────────────────────────────────────
+
+async function saveExitNode() {
+  const val = document.getElementById('exit-select').value;
+  if (!val) {
+    setStatus('exit-status', 'Select an exit node first.', false);
+    return;
+  }
+
+  setBusy('save-exit-btn', true, 'Save Exit Node');
+  const r = await api('POST', '/tailscale/selection', { exit_node: val });
+  setBusy('save-exit-btn', false, 'Save Exit Node');
+
+  const ok  = r && r.success;
+  const msg = ok ? `Exit node set to ${val}` : ((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to save');
+  setStatus('exit-status', msg, ok);
+  toast(msg, ok ? 'success' : 'error');
+}
+
+// ─── Change Password ─────────────────────────────────────────────────────────
+
+async function changePassword() {
+  const cur  = document.getElementById('cur-pw').value;
+  const nw   = document.getElementById('new-pw').value;
+  const conf = document.getElementById('confirm-pw').value;
+
+  if (!cur || !nw || !conf) {
+    setStatus('pw-status', 'All fields are required.', false);
+    return;
+  }
+
+  if (nw.length < 12) {
+    setStatus('pw-status', 'New password must be at least 12 characters.', false);
+    return;
+  }
+
+  if (nw !== conf) {
+    setStatus('pw-status', 'Passwords do not match.', false);
+    return;
+  }
+
+  setBusy('save-pw-btn', true, 'Change Password');
+  const r = await api('POST', '/api/auth/change-password', {
+    current_password: cur,
+    new_password:     nw,
+  });
+  setBusy('save-pw-btn', false, 'Change Password');
+
+  const ok  = r && r.success;
+  const msg = ok
+    ? 'Password changed successfully'
+    : ((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to change password');
+
+  setStatus('pw-status', msg, ok);
+  toast(msg, ok ? 'success' : 'error');
+
+  if (ok) {
+    document.getElementById('cur-pw').value    = '';
+    document.getElementById('new-pw').value    = '';
+    document.getElementById('confirm-pw').value = '';
+  }
+}
+
+// ─── Load current settings ───────────────────────────────────────────────────
+
+async function loadCurrentSettings() {
+  const r = await api('GET', '/settings/config');
+  if (!r || !r.success) return;
+
+  const s = r.msg;
+  if (s.ap_ssid)    document.getElementById('ap-ssid').placeholder = `Current: ${s.ap_ssid}`;
+  if (s.ap_password) document.getElementById('ap-pw').placeholder  = `Current: ${'•'.repeat(s.ap_password.length)}`;
+}
+
+// ─── Init ────────────────────────────────────────────────────────────────────
+
+(async () => {
+  const r = await api('GET', '/api/auth/session');
+  if (!r) return; // redirected to login
+  loadCurrentSettings();
+  loadExitNodes();
+})();
+</script>
+</body>
+</html>

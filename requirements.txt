@@ -3,3 +3,4 @@ qrcode
 requests
 uvicorn
 pydantic
+aiofiles

@@ -1,9 +1,13 @@
+import os
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
+from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
 from TravelRouter.config_file import DataManager
@@ -62,8 +66,25 @@ def create_app() -> FastAPI:
     app.state.auth_manager = auth_manager
 
     app.include_router(auth_api)
+    app.include_router(settings_router)
     app.include_router(tailscale_router)
     app.include_router(wifi_router)
     register_exception_handlers(app)
+
+    static_dir = os.path.join(os.path.dirname(__file__), "static")
+
+    @app.get("/", include_in_schema=False)
+    async def serve_index():
+        return FileResponse(os.path.join(static_dir, "index.html"))
+
+    @app.get("/login", include_in_schema=False)
+    async def serve_login():
+        return FileResponse(os.path.join(static_dir, "login.html"))
+
+    @app.get("/settings-page", include_in_schema=False)
+    async def serve_settings():
+        return FileResponse(os.path.join(static_dir, "settings.html"))
+
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
     return app

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Login — Travel Router</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">&#x1F4F6;</div>
+    <div class="login-title">Travel Router</div>
+    <div class="login-sub">Enter your password to continue</div>
+
+    <div class="err-box" id="err"></div>
+
+    <form id="form" style="display:flex;flex-direction:column;gap:12px;" onsubmit="login(event)">
+      <div class="field">
+        <label for="pw">Password</label>
+        <input type="password" id="pw" placeholder="Password" autofocus autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn btn-primary btn-full" id="submit-btn">
+        Sign in
+      </button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // If already authenticated, go home
+  fetch('/api/auth/session', { credentials: 'include' })
+    .then(r => { if (r.ok) window.location.href = '/'; })
+    .catch(() => {});
+
+  async function login(e) {
+    e.preventDefault();
+    const btn = document.getElementById('submit-btn');
+    const err = document.getElementById('err');
+    const pw  = document.getElementById('pw').value;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Signing in…';
+    err.classList.remove('show');
+
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw }),
+      });
+      const json = await res.json();
+
+      if (json.success) {
+        window.location.href = '/';
+      } else {
+        err.textContent = typeof json.msg === 'string' ? json.msg : 'Incorrect password';
+        err.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+        document.getElementById('pw').focus();
+      }
+    } catch {
+      err.textContent = 'Network error — is the router reachable?';
+      err.classList.add('show');
+      btn.disabled = false;
+      btn.textContent = 'Sign in';
+    }
+  }
+</script>
+</body>
+</html>
