@@ -670,6 +670,102 @@ select {
   .toast { min-width: unset; max-width: unset; width: 100%; }
 }
 
+/* ── Health chip (navbar) ── */
+.health-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-sub);
+  transition: all 0.3s;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.health-chip .dot { flex-shrink: 0; }
+
+.health-chip.online {
+  border-color: rgba(63,185,80,0.4);
+  background: var(--green-dim);
+  color: var(--green);
+}
+
+.health-chip.online .dot { background: var(--green); box-shadow: 0 0 6px var(--green); }
+
+.health-chip.offline {
+  border-color: rgba(248,81,73,0.4);
+  background: var(--red-dim);
+  color: var(--red);
+}
+
+.health-chip.offline .dot { background: var(--red); }
+
+/* ── QR panel ── */
+.qr-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--accent-dim);
+  border-bottom: 1px solid var(--border);
+}
+
+.qr-panel-icon {
+  width: 44px;
+  height: 44px;
+  background: var(--accent);
+  border-radius: var(--radius);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.qr-panel-info { flex: 1; min-width: 0; }
+
+.qr-panel-ssid {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.qr-panel-sub {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-top: 3px;
+}
+
+.qr-svg-wrap {
+  padding: 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.qr-svg-wrap svg {
+  max-width: 200px;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+}
+
+.qr-caption {
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-sub);
+  padding: 0 16px 16px;
+  letter-spacing: 0.01em;
+}
+
 /* ── Drives page ── */
 .drive-item {
   display: flex;

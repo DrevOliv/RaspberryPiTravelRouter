@@ -17,40 +17,40 @@
     Travel Router
   </a>
   <div class="nav-spacer"></div>
-  <a href="/" class="nav-btn">&#x2190; Dashboard</a>
+  <div class="health-chip" id="health-chip" title="Backend connection status">
+    <div class="dot"></div>
+    <span id="health-label">API</span>
+  </div>
+  <a href="/" class="nav-btn">&#x2190; Home</a>
   <a href="/settings-page" class="nav-btn">&#x2699;&#xFE0F; Settings</a>
   <button class="nav-btn" id="logout-btn">Sign out</button>
 </nav>
 
 <div class="page">
-  <div class="grid-2">
+  <div class="settings-stack">
 
-    <!-- LEFT: Available drives -->
-    <div class="col">
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title"><span>&#x1F50C;</span> Available Drives</div>
-          <span class="badge" id="avail-badge">&#x2014;</span>
-        </div>
-        <div id="avail-body">
-          <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
-            <div class="skel" style="height:56px;"></div>
-            <div class="skel" style="height:56px;"></div>
-          </div>
+    <!-- Available drives -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F50C;</span> Available Drives</div>
+        <span class="badge" id="avail-badge">&#x2014;</span>
+      </div>
+      <div id="avail-body">
+        <div style="padding:12px;display:flex;flex-direction:column;gap:8px;">
+          <div class="skel" style="height:56px;"></div>
+          <div class="skel" style="height:56px;"></div>
         </div>
       </div>
     </div>
 
-    <!-- RIGHT: Mounted drives -->
-    <div class="col">
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title"><span>&#x1F4C2;</span> Mounted Drives</div>
-          <span class="badge" id="mounted-badge">0</span>
-        </div>
-        <div id="mounted-body">
-          <div class="card-empty" id="mounted-empty">No drives mounted</div>
-        </div>
+    <!-- Mounted drives -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F4C2;</span> Mounted Drives</div>
+        <span class="badge" id="mounted-badge">0</span>
+      </div>
+      <div id="mounted-body">
+        <div class="card-empty">No drives mounted</div>
       </div>
     </div>
 
@@ -123,10 +123,10 @@ function toast(msg, type = 'info') {
 
 // Each entry: { label, mount_point, pathParts: [], dirs: [], loading: bool }
 let mountedDrives = [];
-let pollTimer = null;
-let pollBusy  = false;
+let pollTimer  = null;
+let pollBusy   = false;
+let healthTimer = null;
 
-// Persist mounted drives across navigation within session
 function saveMountedDrives() {
   try {
     sessionStorage.setItem('mountedDrives', JSON.stringify(
@@ -139,9 +139,31 @@ function loadMountedDrivesFromSession() {
   try {
     const raw = sessionStorage.getItem('mountedDrives');
     if (!raw) return;
-    const saved = JSON.parse(raw);
-    mountedDrives = saved.map(d => ({ ...d, dirs: [], loading: false }));
+    mountedDrives = JSON.parse(raw).map(d => ({ ...d, dirs: [], loading: false }));
   } catch {}
+}
+
+// ─── Load server-side mounted drives (needs /drive/mounted_drives endpoint) ──
+// Silently merges any server-known mounts with locally tracked ones.
+// Works automatically once the backend endpoint is added.
+
+async function fetchServerMounts() {
+  const r = await api('GET', '/drive/mounted_drives');
+  if (!r || !r.success || !r.msg || !r.msg.drives) return;
+
+  let changed = false;
+  r.msg.drives.forEach(d => {
+    if (!mountedDrives.find(md => md.mount_point === d.mount_point)) {
+      mountedDrives.push({ label: d.label, mount_point: d.mount_point, pathParts: [], dirs: [], loading: false });
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveMountedDrives();
+    renderMounted();
+    mountedDrives.forEach((drive, idx) => { if (!drive.dirs.length) void loadFolders(drive, idx); });
+  }
 }
 
 // ─── Available drives polling ────────────────────────────────────────────────
@@ -194,17 +216,11 @@ let pendingMountDev = null;
 
 function openMountModal(dev) {
   pendingMountDev = dev;
-  const subEl = document.getElementById('mount-modal-sub');
+  document.getElementById('mount-modal-sub').textContent = `${dev.device} \u00b7 ${dev.size} \u00b7 ${dev.fstype}`;
   const labelInput = document.getElementById('mount-label-input');
-
-  subEl.textContent = `${dev.device} \u00b7 ${dev.size} \u00b7 ${dev.fstype}`;
-  labelInput.value  = dev.label || dev.name || '';
-
+  labelInput.value = dev.label || dev.name || '';
   document.getElementById('mount-confirm-btn').onclick = confirmMount;
-  labelInput.addEventListener('keydown', function onKey(e) {
-    if (e.key === 'Enter') { confirmMount(); labelInput.removeEventListener('keydown', onKey); }
-  });
-
+  labelInput.onkeydown = e => { if (e.key === 'Enter') confirmMount(); };
   document.getElementById('mount-modal').style.display = 'flex';
   setTimeout(() => labelInput.focus(), 80);
 }
@@ -219,28 +235,21 @@ function closeMountModal(e) {
 async function confirmMount() {
   const dev   = pendingMountDev;
   const label = document.getElementById('mount-label-input').value.trim();
-
   if (!label) { toast('Enter a mount label', 'warning'); return; }
   if (!dev)   return;
 
   closeMountModal();
-
-  const btn = document.querySelector('#avail-body .btn-primary');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
 
   const r = await api('POST', '/drive/mount', { device: dev.device, label });
 
   if (r && r.success) {
     const mountPoint = r.msg.mount_point;
     toast(`Mounted at ${mountPoint}`, 'success');
-
-    // Avoid duplicate
     if (!mountedDrives.find(d => d.mount_point === mountPoint)) {
       mountedDrives.push({ label: r.msg.drive || label, mount_point: mountPoint, pathParts: [], dirs: [], loading: false });
       saveMountedDrives();
     }
     renderMounted();
-    // Load folders for newly mounted drive
     const newDrive = mountedDrives.find(d => d.mount_point === mountPoint);
     if (newDrive) void loadFolders(newDrive);
   } else {
@@ -251,18 +260,12 @@ async function confirmMount() {
 // ─── Mounted drives ──────────────────────────────────────────────────────────
 
 function renderMounted() {
-  const body       = document.getElementById('mounted-body');
-  const badge      = document.getElementById('mounted-badge');
-  const emptyEl    = document.getElementById('mounted-empty');
+  const body  = document.getElementById('mounted-body');
+  const badge = document.getElementById('mounted-badge');
   badge.textContent = mountedDrives.length;
 
   if (!mountedDrives.length) {
-    body.innerHTML = '';
-    const empty = document.createElement('div');
-    empty.id = 'mounted-empty';
-    empty.className = 'card-empty';
-    empty.textContent = 'No drives mounted';
-    body.appendChild(empty);
+    body.innerHTML = '<div class="card-empty">No drives mounted</div>';
     return;
   }
 
@@ -272,7 +275,6 @@ function renderMounted() {
     section.className = 'mounted-drive';
     section.id = `mounted-drive-${idx}`;
 
-    // Header row
     const head = document.createElement('div');
     head.className = 'mounted-drive-head';
     head.innerHTML = `
@@ -288,7 +290,6 @@ function renderMounted() {
     head.querySelector('.unmount-btn').addEventListener('click', () => unmountDrive(idx));
     section.appendChild(head);
 
-    // Folder browser
     const browser = document.createElement('div');
     browser.className = 'folder-browser';
     browser.id = `browser-${idx}`;
@@ -305,20 +306,20 @@ function buildBreadcrumb(drive, idx) {
   bar.className = 'breadcrumb';
 
   const root = document.createElement('span');
-  root.className = drive.pathParts.length ? 'breadcrumb-seg' : 'breadcrumb-current';
+  root.className   = drive.pathParts.length ? 'breadcrumb-seg' : 'breadcrumb-current';
   root.textContent = drive.label;
   if (drive.pathParts.length) root.addEventListener('click', () => navigateTo(idx, []));
   bar.appendChild(root);
 
   drive.pathParts.forEach((part, i) => {
     const sep = document.createElement('span');
-    sep.className = 'breadcrumb-sep';
+    sep.className   = 'breadcrumb-sep';
     sep.textContent = '/';
     bar.appendChild(sep);
 
-    const seg = document.createElement('span');
-    const isLast = i === drive.pathParts.length - 1;
-    seg.className = isLast ? 'breadcrumb-current' : 'breadcrumb-seg';
+    const seg      = document.createElement('span');
+    const isLast   = i === drive.pathParts.length - 1;
+    seg.className  = isLast ? 'breadcrumb-current' : 'breadcrumb-seg';
     seg.textContent = part;
     if (!isLast) seg.addEventListener('click', () => navigateTo(idx, drive.pathParts.slice(0, i + 1)));
     bar.appendChild(seg);
@@ -339,7 +340,7 @@ function buildFolderList(drive, idx) {
   if (!drive.dirs.length) {
     const empty = document.createElement('div');
     empty.style.cssText = 'padding:14px 16px;font-size:14px;color:var(--text-sub);';
-    empty.textContent = 'No subdirectories';
+    empty.textContent   = 'No subdirectories';
     list.appendChild(empty);
     return list;
   }
@@ -367,15 +368,13 @@ async function navigateTo(idx, pathParts) {
 }
 
 async function loadFolders(drive, idx) {
-  // Find index if not provided
   if (idx === undefined) idx = mountedDrives.indexOf(drive);
   if (idx === -1) return;
 
   drive.loading = true;
   refreshBrowser(idx);
 
-  const sub_path = drive.pathParts.join('/');
-  const r = await api('POST', '/drive/folders', { mount_point: drive.mount_point, sub_path });
+  const r = await api('POST', '/drive/folders', { mount_point: drive.mount_point, sub_path: drive.pathParts.join('/') });
 
   drive.loading = false;
 
@@ -383,8 +382,7 @@ async function loadFolders(drive, idx) {
     drive.dirs = r.msg.dirs || [];
   } else {
     drive.dirs = [];
-    const msg = r && typeof r.msg === 'string' ? r.msg : 'Could not load folders';
-    toast(msg, 'error');
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Could not load folders', 'error');
   }
 
   refreshBrowser(idx);
@@ -394,18 +392,16 @@ function refreshBrowser(idx) {
   const drive   = mountedDrives[idx];
   const browser = document.getElementById(`browser-${idx}`);
   if (!browser || !drive) return;
-
   browser.innerHTML = '';
   browser.appendChild(buildBreadcrumb(drive, idx));
   browser.appendChild(buildFolderList(drive, idx));
 }
 
 async function unmountDrive(idx) {
-  const drive = mountedDrives[idx];
+  const drive   = mountedDrives[idx];
   if (!drive) return;
-
   const section = document.getElementById(`mounted-drive-${idx}`);
-  const btn = section && section.querySelector('.unmount-btn');
+  const btn     = section && section.querySelector('.unmount-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
 
   const r = await api('POST', '/drive/unmount', { mount_point: drive.mount_point });
@@ -421,10 +417,30 @@ async function unmountDrive(idx) {
   }
 }
 
+// ─── Health check ─────────────────────────────────────────────────────────────
+
+async function checkHealth() {
+  try {
+    const res   = await fetch('/api/health', { credentials: 'include' });
+    const chip  = document.getElementById('health-chip');
+    const label = document.getElementById('health-label');
+    if (!chip) return;
+    const online = res.ok;
+    chip.className    = 'health-chip ' + (online ? 'online' : 'offline');
+    label.textContent = online ? 'Connected' : 'Offline';
+  } catch {
+    const chip  = document.getElementById('health-chip');
+    const label = document.getElementById('health-label');
+    if (chip)  chip.className    = 'health-chip offline';
+    if (label) label.textContent = 'Offline';
+  }
+}
+
 // ─── Auth / logout ───────────────────────────────────────────────────────────
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (pollTimer)   { clearInterval(pollTimer);   pollTimer   = null; }
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
   await api('POST', '/api/auth/logout');
   window.location.href = '/login';
 });
@@ -433,12 +449,19 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 
 loadMountedDrivesFromSession();
 renderMounted();
+mountedDrives.forEach((drive, idx) => void loadFolders(drive, idx));
 
-// Load folders for any already-tracked drives
-mountedDrives.forEach((drive, idx) => loadFolders(drive, idx));
-
+void fetchServerMounts();
 void pollAvailable();
-pollTimer = setInterval(() => { void pollAvailable(); }, 5000);
+void checkHealth();
+
+pollTimer   = setInterval(() => { void pollAvailable(); }, 5000);
+healthTimer = setInterval(() => { void checkHealth(); },   5000);
+
+window.addEventListener('pagehide', () => {
+  if (pollTimer)   { clearInterval(pollTimer);   pollTimer   = null; }
+  if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+});
 </script>
 </body>
 </html>

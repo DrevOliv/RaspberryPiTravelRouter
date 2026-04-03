@@ -17,6 +17,10 @@
     Travel Router
   </a>
   <div class="nav-spacer"></div>
+  <div class="health-chip" id="health-chip" title="Backend connection status">
+    <div class="dot"></div>
+    <span id="health-label">API</span>
+  </div>
   <a href="/drives-page" class="nav-btn">&#x1F4BE; Drives</a>
   <a href="/settings-page" class="nav-btn">&#x2699;&#xFE0F; Settings</a>
   <button class="nav-btn" id="logout-btn">Sign out</button>
@@ -66,13 +70,18 @@
 
       <!-- AP QR Code -->
       <div class="card">
-        <div class="card-head">
-          <div class="card-title"><span>&#x1F4F2;</span> AP QR Code</div>
-          <button class="btn btn-sm btn-ghost" onclick="loadQr()">&#x21BB;</button>
+        <div class="qr-panel-head">
+          <div class="qr-panel-icon">&#x1F4E1;</div>
+          <div class="qr-panel-info">
+            <div class="qr-panel-ssid" id="qr-ssid">&#x2014;</div>
+            <div class="qr-panel-sub" id="qr-sub">Loading&#x2026;</div>
+          </div>
+          <button class="btn btn-sm btn-ghost" onclick="loadQr()" title="Refresh QR code" style="flex-shrink:0;">&#x21BB;</button>
         </div>
-        <div id="qr-content" style="padding:20px;text-align:center;">
-          <div class="skel" style="height:200px;width:200px;margin:auto;border-radius:8px;"></div>
+        <div class="qr-svg-wrap" id="qr-svg-wrap">
+          <div class="skel" style="height:180px;width:180px;border-radius:10px;"></div>
         </div>
+        <div class="qr-caption">Scan with your phone camera to join this network</div>
       </div>
 
       <!-- Tailscale -->
@@ -220,6 +229,11 @@ function stopBackgroundWork() {
     tsPollTimer = null;
   }
 
+  if (healthTimer !== null) {
+    clearInterval(healthTimer);
+    healthTimer = null;
+  }
+
   apiControllers.forEach(controller => controller.abort());
   apiControllers.clear();
 }
@@ -236,9 +250,19 @@ async function checkAuth() {
 
 async function fetchSavedConfig() {
   const r = await api('GET', '/settings/config');
-  if (r && r.success && r.msg.exit_node) {
-    savedExitNodeIP = r.msg.exit_node;
-    if (tsStatus) updateTsUI(tsStatus);
+  if (r && r.success) {
+    if (r.msg.exit_node) {
+      savedExitNodeIP = r.msg.exit_node;
+      if (tsStatus) updateTsUI(tsStatus);
+    }
+    // Update QR panel header
+    const ssidEl = document.getElementById('qr-ssid');
+    const subEl  = document.getElementById('qr-sub');
+    if (ssidEl) ssidEl.textContent = r.msg.ap_ssid || '—';
+    if (subEl) {
+      const secured = r.msg.ap_password && r.msg.ap_password.length > 0;
+      subEl.textContent = secured ? 'WPA2 \u00b7 Protected' : 'Open network';
+    }
   }
 }
 
@@ -568,20 +592,42 @@ async function handleExitToggle(enable) {
 // ─── QR Code (auto-load) ─────────────────────────────────────────────────────
 
 async function loadQr() {
-  const el = document.getElementById('qr-content');
-  el.innerHTML = '<div class="skel" style="height:200px;width:200px;margin:auto;border-radius:8px;"></div>';
+  const wrap = document.getElementById('qr-svg-wrap');
+  wrap.innerHTML = '<div class="skel" style="height:180px;width:180px;border-radius:10px;"></div>';
   try {
     const res = await fetch('/wifi/ap-qr', { credentials: 'include' });
     if (res.ok) {
       const svg = await res.text();
-      el.innerHTML = `<div style="display:inline-block;max-width:220px;">${svg}</div>`;
-      el.querySelector('svg') && Object.assign(el.querySelector('svg').style, { maxWidth: '100%', height: 'auto', borderRadius: '8px' });
+      wrap.innerHTML = svg;
+      const svgEl = wrap.querySelector('svg');
+      if (svgEl) { svgEl.style.maxWidth = '200px'; svgEl.style.height = 'auto'; svgEl.style.borderRadius = '10px'; }
     } else {
-      el.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Could not load QR code</span>';
+      wrap.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Could not load QR code</span>';
     }
   } catch {
-    el.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Network error</span>';
+    wrap.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Network error</span>';
   }
+}
+
+// ─── Health check ─────────────────────────────────────────────────────────────
+
+let healthTimer = null;
+
+async function checkHealth() {
+  try {
+    const res = await fetch('/api/health', { credentials: 'include' });
+    setHealth(res.ok);
+  } catch {
+    setHealth(false);
+  }
+}
+
+function setHealth(online) {
+  const chip  = document.getElementById('health-chip');
+  const label = document.getElementById('health-label');
+  if (!chip) return;
+  chip.className    = 'health-chip ' + (online ? 'online' : 'offline');
+  label.textContent = online ? 'Connected' : 'Offline';
 }
 
 // ─── Init ────────────────────────────────────────────────────────────────────
@@ -594,6 +640,7 @@ function startDashboardPage() {
   void pollWifi();
   void pollTs();
   void loadQr();
+  void checkHealth();
 
   if (wifiPollTimer === null) {
     wifiPollTimer = setInterval(() => { void pollWifi(); }, 1000);
@@ -601,6 +648,10 @@ function startDashboardPage() {
 
   if (tsPollTimer === null) {
     tsPollTimer = setInterval(() => { void pollTs(); }, 4000);
+  }
+
+  if (healthTimer === null) {
+    healthTimer = setInterval(() => { void checkHealth(); }, 5000);
   }
 }
 

@@ -17,7 +17,11 @@
     Travel Router
   </a>
   <div class="nav-spacer"></div>
-  <a href="/" class="nav-btn">&#x2190; Dashboard</a>
+  <div class="health-chip" id="health-chip" title="Backend connection status">
+    <div class="dot"></div>
+    <span id="health-label">API</span>
+  </div>
+  <a href="/" class="nav-btn">&#x2190; Home</a>
   <a href="/drives-page" class="nav-btn">&#x1F4BE; Drives</a>
   <button class="nav-btn" id="logout-btn">Sign out</button>
 </nav>
@@ -389,6 +393,27 @@ async function loadCurrentSettings() {
   if (s.ap_password) document.getElementById('ap-pw').placeholder  = `Current: ${'•'.repeat(s.ap_password.length)}`;
 }
 
+// ─── Health check ────────────────────────────────────────────────────────────
+
+let healthTimer = null;
+
+async function checkHealth() {
+  try {
+    const res = await fetch('/api/health', { credentials: 'include' });
+    const chip  = document.getElementById('health-chip');
+    const label = document.getElementById('health-label');
+    if (!chip) return;
+    const online = res.ok;
+    chip.className    = 'health-chip ' + (online ? 'online' : 'offline');
+    label.textContent = online ? 'Connected' : 'Offline';
+  } catch {
+    const chip  = document.getElementById('health-chip');
+    const label = document.getElementById('health-label');
+    if (chip)  chip.className    = 'health-chip offline';
+    if (label) label.textContent = 'Offline';
+  }
+}
+
 // ─── Init ────────────────────────────────────────────────────────────────────
 
 function startSettingsPage() {
@@ -398,7 +423,16 @@ function startSettingsPage() {
   void checkAuth();
   void loadCurrentSettings();
   void loadExitNodes();
+  void checkHealth();
+
+  if (healthTimer === null) {
+    healthTimer = setInterval(() => { void checkHealth(); }, 5000);
+  }
 }
+
+window.addEventListener('pagehide', () => {
+  if (healthTimer !== null) { clearInterval(healthTimer); healthTimer = null; }
+});
 
 window.addEventListener('pageshow', event => {
   if (event.persisted) startSettingsPage();
