@@ -1,5 +1,4 @@
 from pydantic import BaseModel, Field
-from TravelRouter.components.wifi.functions import WifiNetwork
 
 
 class WifiConnectBody(BaseModel):
@@ -20,6 +19,14 @@ class ApPasswordBody(BaseModel):
     ap_password: str = Field("ChangeThisPassword", description="Password used for the private travel-router access point.")
 
 # _________________________ Live update ___________________________
+
+
+class WifiNetwork(BaseModel):
+    ssid: str
+    security: str
+    is_open: bool
+    signal: int
+
 
 class WifiCurrent(BaseModel):
     state: str = Field(False, description="Whether the Pi is currently connected to an upstream Wi-Fi network and the state of the connected Wi-Fi network.")

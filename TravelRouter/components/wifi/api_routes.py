@@ -7,24 +7,24 @@ from TravelRouter.components.wifi.functions import (
     wifi_qr_svg,
     parse_wifi_scan_rows,
     parse_current_network,
-    ap_connected_devices
+    ap_connected_devices,
 )
 
 from TravelRouter.components.wifi.system_api import (
-connect_wifi,
-disconnect_wifi,
-apply_ap_ssid,
-apply_ap_password,
-scan_for_wifi_networks,
-get_connected_network
+    connect_wifi,
+    disconnect_wifi,
+    apply_ap_ssid,
+    apply_ap_password,
+    scan_for_wifi_networks,
+    get_connected_network,
 )
 
 from TravelRouter.components.wifi.data_models import (
-WifiConnectBody,
-WifiSettingsBody,
-ApSsidBody,
-ApPasswordBody,
-WifiLiveResponse,
+    WifiConnectBody,
+    WifiSettingsBody,
+    ApSsidBody,
+    ApPasswordBody,
+    WifiLiveResponse,
 )
 
 router = APIRouter()
@@ -84,8 +84,8 @@ async def api_wifi_settings(body: WifiSettingsBody):
 
 @router.get(
     "/wifi/wifi-live",
-    response_model=WifiLiveResponse,
-    tags=["home"],
+    response_model=ApiResponse,
+    tags=["wifi"],
     summary="Get live Wi-Fi dashboard data",
     description="Returns only the current upstream Wi-Fi state and nearby scanned networks for lightweight Home screen polling.",
 )
@@ -106,13 +106,11 @@ async def api_home_wifi_live():
 
     current_network = parse_current_network(result.stdout)
 
-    # Get connected devices to AP
-
     return ApiResponse(success=True,
                        msg=WifiLiveResponse(
                            wifi_networks=wifi_networks,
                            wifi_current=current_network,
-                           connected_devices=ap_connected_devices
+                           connected_devices=ap_connected_devices(settings.wifi.ap_interface),     # Get connected devices to AP
                        ),
                        msg_type="json")
 
@@ -127,7 +125,7 @@ async def api_home_wifi_live():
 )
 async def api_home_ap_qr():
     settings = data_manager.get_data()
-    svg = wifi_qr_svg(settings.wifi.wifi_ssid, settings.wifi.wifi_password)
+    svg = wifi_qr_svg(settings.wifi.ap_ssid, settings.wifi.ap_password)
     return Response(content=svg, media_type="image/svg+xml")
 
 
@@ -170,5 +168,4 @@ async def api_wifi_ap_password(body: ApPasswordBody):
     data_manager.set_data(settings)
 
     return ApiResponse(success=True, msg="AP password saved")
-
 

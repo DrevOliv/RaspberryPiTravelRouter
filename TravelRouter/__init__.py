@@ -4,6 +4,7 @@ from fastapi.responses import JSONResponse
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
+from TravelRouter.components.wifi import router as wifi_router
 from TravelRouter.config_file import DataManager
 from TravelRouter.helpers import ApiResponse, build_api_response, dump_api_response
 
@@ -60,6 +61,7 @@ def create_app() -> FastAPI:
     app.state.auth_manager = auth_manager
 
     app.include_router(auth_api)
+    app.include_router(wifi_router)
     register_exception_handlers(app)
 
     return app

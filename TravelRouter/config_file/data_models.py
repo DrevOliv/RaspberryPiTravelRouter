@@ -8,8 +8,8 @@ class AuthData(BaseModel):
 
 
 class WifiData(BaseModel):
-    wifi_ssid: str = ""
-    wifi_password: str = ""
+    wifi_ssid: str = "ChangeMe"
+    wifi_password: str = "ChangeMe"
     upstream_interface: str = ""
     ap_interface: str = ""
     ap_password: str = ""

@@ -1,9 +1,9 @@
 import io
-from pydantic import BaseModel
-from TravelRouter.components.wifi.data_models import WifiCurrent
-from TravelRouter.components.wifi.system_api import get_ap_connected_devices
 import json
 import os
+
+from TravelRouter.components.wifi.data_models import WifiCurrent, WifiNetwork
+from TravelRouter.components.wifi.system_api import get_ap_connected_devices
 
 # _____________________________ Funcs For wifi qr code ____________________________________
 
@@ -57,13 +57,6 @@ def split_nmcli_row(row: str) -> list[str]:
     parts.append("".join(current))
     return [part.replace("\\:", ":") for part in parts]
 
-
-class WifiNetwork(BaseModel):
-    ssid: str
-    security: str
-    is_open: bool
-    signal: int
-
 def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
     networks = []
     seen = set()
@@ -91,7 +84,7 @@ def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
             )
         )
 
-    networks.sort(key=lambda network: (- network.security, network.ssid.lower()))
+    networks.sort(key=lambda network: (-network.signal, network.ssid.lower()))
     return networks
 
 # _______________________ Parse current wifi data ____________________________
