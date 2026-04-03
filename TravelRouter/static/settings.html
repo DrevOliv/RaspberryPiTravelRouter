@@ -116,20 +116,37 @@
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
 async function api(method, url, body) {
+  const controller = new AbortController();
+  apiControllers.add(controller);
+
   try {
-    const opts = { method, credentials: 'include', headers: {} };
+    const opts = {
+      method,
+      credentials: 'include',
+      headers: {},
+      signal: controller.signal,
+    };
+
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
+
     const res = await fetch(url, opts);
     if (res.status === 401 || res.status === 403) {
-      window.location.href = '/login';
+      if (!isLeavingPage) {
+        stopBackgroundWork();
+        window.location.href = '/login';
+      }
       return null;
     }
+
     return await res.json();
-  } catch {
+  } catch (error) {
+    if (error && error.name === 'AbortError') return null;
     return null;
+  } finally {
+    apiControllers.delete(controller);
   }
 }
 
@@ -161,9 +178,34 @@ function setBusy(btnId, busy, label) {
   btn.innerHTML = busy ? '<span class="spin"></span>' : label;
 }
 
+let isLeavingPage = false;
+let settingsConfigRequest = null;
+
+const apiControllers = new Set();
+
+function stopBackgroundWork() {
+  isLeavingPage = true;
+  apiControllers.forEach(controller => controller.abort());
+  apiControllers.clear();
+}
+
+function checkAuth() {
+  return api('GET', '/api/auth/session');
+}
+
+function getSettingsConfig() {
+  if (settingsConfigRequest === null) {
+    settingsConfigRequest = api('GET', '/settings/config');
+  }
+  return settingsConfigRequest;
+}
+
+window.addEventListener('pagehide', stopBackgroundWork);
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  stopBackgroundWork();
   await api('POST', '/api/auth/logout');
   window.location.href = '/login';
 });
@@ -177,7 +219,7 @@ async function loadExitNodes() {
 
   const [tsRes, cfgRes] = await Promise.all([
     api('GET', '/tailscale/status'),
-    api('GET', '/settings/config'),
+    getSettingsConfig(),
   ]);
 
   if (!tsRes || !tsRes.success) {
@@ -338,7 +380,7 @@ async function changePassword() {
 // ─── Load current settings ───────────────────────────────────────────────────
 
 async function loadCurrentSettings() {
-  const r = await api('GET', '/settings/config');
+  const r = await getSettingsConfig();
   if (!r || !r.success) return;
 
   const s = r.msg;
@@ -348,12 +390,20 @@ async function loadCurrentSettings() {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-(async () => {
-  const r = await api('GET', '/api/auth/session');
-  if (!r) return; // redirected to login
-  loadCurrentSettings();
-  loadExitNodes();
-})();
+function startSettingsPage() {
+  isLeavingPage = false;
+  settingsConfigRequest = null;
+
+  void checkAuth();
+  void loadCurrentSettings();
+  void loadExitNodes();
+}
+
+window.addEventListener('pageshow', event => {
+  if (event.persisted) startSettingsPage();
+});
+
+startSettingsPage();
 </script>
 </body>
 </html>

@@ -134,20 +134,37 @@ function esc(s) {
 }
 
 async function api(method, url, body) {
+  const controller = new AbortController();
+  apiControllers.add(controller);
+
   try {
-    const opts = { method, credentials: 'include', headers: {} };
+    const opts = {
+      method,
+      credentials: 'include',
+      headers: {},
+      signal: controller.signal,
+    };
+
     if (body !== undefined) {
       opts.headers['Content-Type'] = 'application/json';
       opts.body = JSON.stringify(body);
     }
+
     const res = await fetch(url, opts);
     if (res.status === 401 || res.status === 403) {
-      window.location.href = '/login';
+      if (!isLeavingPage) {
+        stopBackgroundWork();
+        window.location.href = '/login';
+      }
       return null;
     }
+
     return await res.json();
-  } catch {
+  } catch (error) {
+    if (error && error.name === 'AbortError') return null;
     return null;
+  } finally {
+    apiControllers.delete(controller);
   }
 }
 
@@ -173,12 +190,35 @@ let wifiBusy        = false;
 let tsBusy          = false;
 let firstWifi       = true;
 let firstTs         = true;
+let isLeavingPage   = false;
+let wifiPollTimer   = null;
+let tsPollTimer     = null;
+
+const apiControllers = new Set();
+
+function stopBackgroundWork() {
+  isLeavingPage = true;
+
+  if (wifiPollTimer !== null) {
+    clearInterval(wifiPollTimer);
+    wifiPollTimer = null;
+  }
+
+  if (tsPollTimer !== null) {
+    clearInterval(tsPollTimer);
+    tsPollTimer = null;
+  }
+
+  apiControllers.forEach(controller => controller.abort());
+  apiControllers.clear();
+}
+
+window.addEventListener('pagehide', stopBackgroundWork);
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 async function checkAuth() {
-  const r = await api('GET', '/api/auth/session');
-  return r !== null; // null = redirected to login
+  await api('GET', '/api/auth/session');
 }
 
 // ─── Saved exit node (fetched once on load) ──────────────────────────────────
@@ -191,6 +231,7 @@ async function fetchSavedConfig() {
 }
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
+  stopBackgroundWork();
   await api('POST', '/api/auth/logout');
   window.location.href = '/login';
 });
@@ -542,20 +583,32 @@ function closeQr(e) {
 
 // ─── Init ────────────────────────────────────────────────────────────────────
 
-(async () => {
-  const ok = await checkAuth();
-  if (!ok) return;
+function startDashboardPage() {
+  isLeavingPage = false;
 
-  // Fetch saved config once (fast — just reads data.json)
-  fetchSavedConfig();
+  void checkAuth();
+  void fetchSavedConfig();
+  void pollWifi();
+  void pollTs();
 
-  // Kick off both polls immediately
-  pollWifi();
-  pollTs();
+  if (wifiPollTimer === null) {
+    wifiPollTimer = setInterval(() => {
+      void pollWifi();
+    }, 1000);
+  }
 
-  setInterval(pollWifi, 1000);
-  setInterval(pollTs,   4000);
-})();
+  if (tsPollTimer === null) {
+    tsPollTimer = setInterval(() => {
+      void pollTs();
+    }, 4000);
+  }
+}
+
+window.addEventListener('pageshow', event => {
+  if (event.persisted) startDashboardPage();
+});
+
+startDashboardPage();
 </script>
 </body>
 </html>

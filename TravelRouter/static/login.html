@@ -31,13 +31,24 @@
 </div>
 
 <script>
+  const sessionCheckController = new AbortController();
+
+  window.addEventListener('pagehide', () => {
+    sessionCheckController.abort();
+  });
+
   // If already authenticated, go home
-  fetch('/api/auth/session', { credentials: 'include' })
+  fetch('/api/auth/session', {
+    credentials: 'include',
+    signal: sessionCheckController.signal,
+  })
     .then(r => { if (r.ok) window.location.href = '/'; })
     .catch(() => {});
 
   async function login(e) {
     e.preventDefault();
+    sessionCheckController.abort();
+
     const btn = document.getElementById('submit-btn');
     const err = document.getElementById('err');
     const pw  = document.getElementById('pw').value;
