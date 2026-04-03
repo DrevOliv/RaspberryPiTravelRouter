@@ -7,7 +7,7 @@ from fastapi.staticfiles import StaticFiles
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
-from TravelRouter.components.rsync import router as rsync_router
+from TravelRouter.components.drive import router as rsync_router
 from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
@@ -53,7 +53,7 @@ async def _health_check() -> ApiResponse:
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
     "API for the Pi Travel Router web UI, including Wi-Fi, Tailscale, Jellyfin, "
-    "playback control, and rsync backups."
+    "playback control, and drive backups."
 )
 APP_VERSION = "1.0.0"
 OPENAPI_TAGS = [
@@ -66,7 +66,7 @@ OPENAPI_TAGS = [
     {"name": "media", "description": "Jellyfin browsing and playback start endpoints."},
     {"name": "remote", "description": "Playback transport and track-selection controls."},
     {"name": "playback", "description": "Playback transport and track-selection control APIs."},
-    {"name": "rsync", "description": "Drive discovery and rsync backup job management."},
+    {"name": "drive", "description": "Drive discovery and drive backup job management."},
 ]
 
 
