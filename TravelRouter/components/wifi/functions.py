@@ -91,7 +91,9 @@ def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
 
 def parse_current_network(stdout: str) -> WifiCurrent:
     lines = stdout.strip().split("\n")
-
+    print("___________________________ HIJDIOJNASIOD____________________")
+    print(stdout)
+    print(lines)
     return WifiCurrent(state=lines[0], ssid=lines[1])
 
 # _______________________ Parse connected devices to AP ________________________
