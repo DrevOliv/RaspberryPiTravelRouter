@@ -7,8 +7,15 @@ class AuthData(BaseModel):
     password_updated_at: float | None = None
 
 
-
+class WifiData(BaseModel):
+    wifi_ssid: str = ""
+    wifi_password: str = ""
+    upstream_interface: str = ""
+    ap_interface: str = ""
+    ap_password: str = ""
+    ap_ssid: str = ""
 
 
 class DataModels(BaseModel):
     auth: AuthData = Field(default_factory=AuthData)
+    wifi: WifiData = Field(default_factory=WifiData)

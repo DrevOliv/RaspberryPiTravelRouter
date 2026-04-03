@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Request, Response
 
 from TravelRouter.components.auth.functions import get_auth_manager, require_api_auth
 from TravelRouter.components.auth.models import ChangePasswordRequest, LoginRequest
-from TravelRouter.data_models import ApiResponse, build_api_response
+from TravelRouter.helpers import ApiResponse, build_api_response
 
 auth_api = APIRouter(prefix="/api/auth", tags=["auth"])
 

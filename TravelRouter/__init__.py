@@ -5,7 +5,7 @@ from fastapi.responses import JSONResponse
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
 from TravelRouter.config_file import DataManager
-from TravelRouter.data_models import ApiResponse, build_api_response, dump_api_response
+from TravelRouter.helpers import ApiResponse, build_api_response, dump_api_response
 
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
