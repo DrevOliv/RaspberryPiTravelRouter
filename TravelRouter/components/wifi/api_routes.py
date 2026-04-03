@@ -100,6 +100,9 @@ async def api_home_wifi_live():
     wifi_networks = parse_wifi_scan_rows(result.stdout)
 
     # Get connected network
+    print("___________________--------------___________--_-_-_-_--_-")
+    print(settings.wifi.upstream_interface)
+
     result = get_connected_network(settings.wifi.upstream_interface)
     if not result.success:
         return ApiResponse(msg=result)

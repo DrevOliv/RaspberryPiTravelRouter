@@ -38,7 +38,7 @@ def run_command(command: list[str], timeout: int = 20) -> CmdStatus:
     stderr = completed.stderr.strip()
 
     return CmdStatus(
-        success=True,
+        success=completed.returncode == 0 and not stderr,
         stdout=stdout,
         stderr=stderr,
         command=" ".join(shlex.quote(part) for part in command)
