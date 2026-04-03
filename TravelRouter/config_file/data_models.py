@@ -15,7 +15,10 @@ class WifiData(BaseModel):
     ap_password: str = ""
     ap_ssid: str = ""
 
+class TailscaleData(BaseModel):
+    exit_node: str = ""
 
 class DataModels(BaseModel):
     auth: AuthData = Field(default_factory=AuthData)
     wifi: WifiData = Field(default_factory=WifiData)
+    tailscale: TailscaleData = Field(default_factory=TailscaleData)

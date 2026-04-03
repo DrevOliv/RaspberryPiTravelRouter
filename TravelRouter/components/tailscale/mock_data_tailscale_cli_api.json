@@ -1,0 +1,386 @@
+{
+  "Version": "1.96.4-t8cf541dfd-g62bc84ce7",
+  "TUN": true,
+  "BackendState": "Running",
+  "HaveNodeKey": true,
+  "AuthURL": "",
+  "TailscaleIPs": [
+    "100.117.121.59",
+    "fd7a:115c:a1e0::ca34:793b"
+  ],
+  "Self": {
+    "ID": "nqY5rNHjZ911CNTRL",
+    "PublicKey": "nodekey:79826a1b4f44e4bbd8ab02f57529987a6721b290059adeda33b3d5c2cab5793a",
+    "HostName": "router",
+    "DNSName": "router.shad-little.ts.net.",
+    "OS": "linux",
+    "UserID": 5031228021505857,
+    "TailscaleIPs": [
+      "100.117.121.59",
+      "fd7a:115c:a1e0::ca34:793b"
+    ],
+    "AllowedIPs": [
+      "100.117.121.59/32",
+      "fd7a:115c:a1e0::ca34:793b/128"
+    ],
+    "Addrs": [
+      "213.66.54.145:41641",
+      "[2001:2042:9e02:5500:e808:b6e8:9bf:65b9]:41641",
+      "10.42.0.1:41641",
+      "192.168.0.108:41641",
+      "192.168.100.100:41641",
+      "[2001:2042:9e02:5500:5893:1b01:f83c:513b]:41641"
+    ],
+    "CurAddr": "",
+    "Relay": "hel",
+    "PeerRelay": "",
+    "RxBytes": 0,
+    "TxBytes": 0,
+    "Created": "2026-03-27T16:16:37.873829055Z",
+    "LastWrite": "0001-01-01T00:00:00Z",
+    "LastSeen": "0001-01-01T00:00:00Z",
+    "LastHandshake": "0001-01-01T00:00:00Z",
+    "Online": true,
+    "ExitNode": false,
+    "ExitNodeOption": false,
+    "Active": false,
+    "PeerAPIURL": [
+      "http://100.117.121.59:55346",
+      "http://[fd7a:115c:a1e0::ca34:793b]:49093"
+    ],
+    "TaildropTarget": 0,
+    "NoFileSharingReason": "",
+    "Capabilities": [
+      "HTTPS://TAILSCALE.COM/s/DEPRECATED-NODE-CAPS#see-https://github.com/tailscale/tailscale/issues/11508",
+      "https://tailscale.com/cap/file-sharing",
+      "https://tailscale.com/cap/is-admin",
+      "https://tailscale.com/cap/is-owner",
+      "https://tailscale.com/cap/ssh",
+      "https://tailscale.com/cap/tailnet-lock",
+      "probe-udp-lifetime",
+      "ssh-behavior-v1",
+      "ssh-env-vars",
+      "store-appc-routes",
+      "tailnet-display-name"
+    ],
+    "CapMap": {
+      "https://tailscale.com/cap/file-sharing": null,
+      "https://tailscale.com/cap/is-admin": null,
+      "https://tailscale.com/cap/is-owner": null,
+      "https://tailscale.com/cap/ssh": null,
+      "https://tailscale.com/cap/tailnet-lock": null,
+      "probe-udp-lifetime": null,
+      "ssh-behavior-v1": null,
+      "ssh-env-vars": null,
+      "store-appc-routes": null,
+      "tailnet-display-name": [
+        "oliver.drevet@icloud.com"
+      ]
+    },
+    "InNetworkMap": true,
+    "InMagicSock": false,
+    "InEngine": false,
+    "KeyExpiry": "2026-09-23T16:16:37Z"
+  },
+  "Health": [],
+  "MagicDNSSuffix": "shad-little.ts.net",
+  "CurrentTailnet": {
+    "Name": "oliver.drevet@icloud.com",
+    "MagicDNSSuffix": "shad-little.ts.net",
+    "MagicDNSEnabled": true
+  },
+  "CertDomains": null,
+  "Peer": {
+    "nodekey:2c9077050032713f1ff738ed648beebb7687683e5b3309439504e3b0325b4a66": {
+      "ID": "nYTy8QVQJ921CNTRL",
+      "PublicKey": "nodekey:2c9077050032713f1ff738ed648beebb7687683e5b3309439504e3b0325b4a66",
+      "HostName": "truenas-scale",
+      "DNSName": "truenas-scale.shad-little.ts.net.",
+      "OS": "linux",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.91.74.103",
+        "fd7a:115c:a1e0::3233:4a67"
+      ],
+      "AllowedIPs": [
+        "100.91.74.103/32",
+        "fd7a:115c:a1e0::3233:4a67/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-12-23T19:24:36.891334762Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "0001-01-01T00:00:00Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.91.74.103:52023",
+        "http://[fd7a:115c:a1e0::3233:4a67]:53679"
+      ],
+      "TaildropTarget": 1,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false
+    },
+    "nodekey:2dd6e0770da47e41d6d996cfbcbe22a8053764313b82a20857914edfc1ec683f": {
+      "ID": "n4YmBabkkd11CNTRL",
+      "PublicKey": "nodekey:2dd6e0770da47e41d6d996cfbcbe22a8053764313b82a20857914edfc1ec683f",
+      "HostName": "server",
+      "DNSName": "services.shad-little.ts.net.",
+      "OS": "linux",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.108.104.64",
+        "fd7a:115c:a1e0::c133:6840"
+      ],
+      "AllowedIPs": [
+        "100.108.104.64/32",
+        "fd7a:115c:a1e0::c133:6840/128",
+        "192.168.0.0/24",
+        "0.0.0.0/0",
+        "::/0"
+      ],
+      "PrimaryRoutes": [
+        "192.168.0.0/24"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-12-21T04:49:18.577372946Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "0001-01-01T00:00:00Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": true,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.108.104.64:52073",
+        "http://[fd7a:115c:a1e0::c133:6840]:41700"
+      ],
+      "TaildropTarget": 1,
+      "NoFileSharingReason": "",
+      "CapMap": {
+        "suggest-exit-node": null
+      },
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": true
+    },
+    "nodekey:63a53d8886a99d021c94ac321faa4d43e17b7b0051f23f4597407b93b317b60b": {
+      "ID": "nmKBEkgjqD11CNTRL",
+      "PublicKey": "nodekey:63a53d8886a99d021c94ac321faa4d43e17b7b0051f23f4597407b93b317b60b",
+      "HostName": "mserver",
+      "DNSName": "mserver.shad-little.ts.net.",
+      "OS": "linux",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.87.182.12",
+        "fd7a:115c:a1e0::b333:b60c"
+      ],
+      "AllowedIPs": [
+        "100.87.182.12/32",
+        "fd7a:115c:a1e0::b333:b60c/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-10-17T11:27:12.541397107Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "0001-01-01T00:00:00Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.87.182.12:42034",
+        "http://[fd7a:115c:a1e0::b333:b60c]:51150"
+      ],
+      "TaildropTarget": 1,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false
+    },
+    "nodekey:b50cdbfd09d99cfac0a239848c91ae22183cca39df74951c3912611f5ecda548": {
+      "ID": "niWfc5epnx11CNTRL",
+      "PublicKey": "nodekey:b50cdbfd09d99cfac0a239848c91ae22183cca39df74951c3912611f5ecda548",
+      "HostName": "raspberrypi",
+      "DNSName": "raspberrypi.shad-little.ts.net.",
+      "OS": "linux",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.77.165.73",
+        "fd7a:115c:a1e0::5e33:a549"
+      ],
+      "AllowedIPs": [
+        "100.77.165.73/32",
+        "fd7a:115c:a1e0::5e33:a549/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-12-21T05:04:42.792112211Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "2026-03-15T21:36:22.1Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.77.165.73:63001",
+        "http://[fd7a:115c:a1e0::5e33:a549]:45891"
+      ],
+      "TaildropTarget": 5,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false
+    },
+    "nodekey:b68c7a50432220507cebc7c69fc90a4a3a0b855d6459a816fea177bb31b10c2e": {
+      "ID": "nFnSvXkgEP11CNTRL",
+      "PublicKey": "nodekey:b68c7a50432220507cebc7c69fc90a4a3a0b855d6459a816fea177bb31b10c2e",
+      "HostName": "Oliver’s MacBook Air",
+      "DNSName": "olivers-macbook-air.shad-little.ts.net.",
+      "OS": "macOS",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.113.12.47",
+        "fd7a:115c:a1e0::3133:c2f"
+      ],
+      "AllowedIPs": [
+        "100.113.12.47/32",
+        "fd7a:115c:a1e0::3133:c2f/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-12-21T04:59:01.969185242Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "2026-04-02T05:07:35.1Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.113.12.47:43296",
+        "http://[fd7a:115c:a1e0::3133:c2f]:61582"
+      ],
+      "TaildropTarget": 5,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false,
+      "KeyExpiry": "2026-06-19T04:59:01Z"
+    },
+    "nodekey:bfeb77f52deda18155789afab82e093586e10860e9d26c7e49931f811b21c717": {
+      "ID": "nK3aQfgb8W11CNTRL",
+      "PublicKey": "nodekey:bfeb77f52deda18155789afab82e093586e10860e9d26c7e49931f811b21c717",
+      "HostName": "raspberrypi",
+      "DNSName": "farmor-farfar-raspberrypi.shad-little.ts.net.",
+      "OS": "linux",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.97.199.24",
+        "fd7a:115c:a1e0::1b33:c718"
+      ],
+      "AllowedIPs": [
+        "100.97.199.24/32",
+        "fd7a:115c:a1e0::1b33:c718/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "fra",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-12-27T09:21:56.170582919Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "2026-04-03T07:40:00.1Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": true,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.97.199.24:41434",
+        "http://[fd7a:115c:a1e0::1b33:c718]:56068"
+      ],
+      "TaildropTarget": 1,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false
+    },
+    "nodekey:dd6bf46345d12369a45863723325b6edee8c5f3ebe9d6c7dc34094d369bd7a29": {
+      "ID": "nT162tLic921CNTRL",
+      "PublicKey": "nodekey:dd6bf46345d12369a45863723325b6edee8c5f3ebe9d6c7dc34094d369bd7a29",
+      "HostName": "localhost",
+      "DNSName": "iphone-13-mini.shad-little.ts.net.",
+      "OS": "iOS",
+      "UserID": 5031228021505857,
+      "TailscaleIPs": [
+        "100.125.122.42",
+        "fd7a:115c:a1e0::6933:7a2a"
+      ],
+      "AllowedIPs": [
+        "100.125.122.42/32",
+        "fd7a:115c:a1e0::6933:7a2a/128"
+      ],
+      "Addrs": null,
+      "CurAddr": "",
+      "Relay": "hel",
+      "PeerRelay": "",
+      "RxBytes": 0,
+      "TxBytes": 0,
+      "Created": "2025-10-19T12:35:56.623703983Z",
+      "LastWrite": "0001-01-01T00:00:00Z",
+      "LastSeen": "2026-03-23T13:11:49.1Z",
+      "LastHandshake": "0001-01-01T00:00:00Z",
+      "Online": false,
+      "ExitNode": false,
+      "ExitNodeOption": false,
+      "Active": false,
+      "PeerAPIURL": [
+        "http://100.125.122.42:64187",
+        "http://[fd7a:115c:a1e0::6933:7a2a]:55921"
+      ],
+      "TaildropTarget": 5,
+      "NoFileSharingReason": "",
+      "InNetworkMap": true,
+      "InMagicSock": true,
+      "InEngine": false,
+      "KeyExpiry": "2026-04-17T12:35:56Z"
+    }
+  },
+  "User": {
+    "5031228021505857": {
+      "ID": 5031228021505857,
+      "LoginName": "oliver.drevet@icloud.com",
+      "DisplayName": "oliver.drevet"
+    }
+  },
+  "ClientVersion": null,
