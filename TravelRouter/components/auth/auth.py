@@ -92,6 +92,7 @@ class AuthManager:
             return
 
         self._set_auth_data(self.build_auth_data(DEFAULT_TEMP_PASSWORD))
+        print("Default Password:", DEFAULT_TEMP_PASSWORD)
 
     def login(self, password: str, response: Response) -> None:
         if not self.verify_password(password):

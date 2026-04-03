@@ -12,8 +12,8 @@ class WifiData(BaseModel):
     wifi_password: str = "ChangeMe"
     upstream_interface: str = "wlan0"
     ap_interface: str = "wlan1"
-    ap_password: str = ""
-    ap_ssid: str = ""
+    ap_password: str = "RouterPi"
+    ap_ssid: str = "Password123"
 
 class TailscaleData(BaseModel):
     exit_node: str = ""
