@@ -5,7 +5,7 @@ def get_connected_drives()->CmdStatus:
 
 
 def mount_drive(device, mount_point):
-    return run_command(["mount", device, mount_point])
+    return run_command(["sudo","mount", device, mount_point])
 
 def unmount_drive(mount_point):
-    return run_command(["umount", mount_point])
+    return run_command(["sudo","umount", mount_point])
