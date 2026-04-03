@@ -6,11 +6,13 @@ from fastapi import APIRouter
 from TravelRouter.helpers.api_response import ApiResponse
 from TravelRouter.helpers.run_command import run_in_thread
 
-from TravelRouter.components.rsync.data_models import MountPoint, MountRequest
+from TravelRouter.components.rsync.data_models import FolderRequest, MountPoint, MountRequest
 from TravelRouter.components.rsync.functions import (
     delete_dir,
+    find_device_mount_point,
     make_dirs,
     parse_lsblk,
+    resolve_folder_path,
     resolve_mount_path,
     scan_dir,
 )
@@ -63,6 +65,21 @@ async def api_mount_drive(body: MountRequest):
     except OSError as error:
         return ApiResponse(msg=f"error creating mount point {error}")
 
+    if os.path.ismount(mount_point):
+        return ApiResponse(
+            success=True,
+            msg={"drive": label, "mount_point": mount_point},
+            msg_type="json",
+        )
+
+    existing_mount_point = await run_in_thread(find_device_mount_point, device)
+    if existing_mount_point:
+        return ApiResponse(
+            success=True,
+            msg={"drive": label, "mount_point": existing_mount_point},
+            msg_type="json",
+        )
+
     result = await run_in_thread(mount_drive, device, mount_point)
     if not result.success:
         try:
@@ -113,15 +130,19 @@ async def api_unmount_drive(body: MountPoint):
     summary="Get folders on a mounted drive",
     description="List child folders under a mounted drive path",
 )
-async def api_get_folders_struct(body: MountPoint):
+async def api_get_folders_struct(body: FolderRequest):
     mount_point = body.mount_point.strip()
     if not mount_point:
         return ApiResponse(msg="Missing mount point")
 
     try:
-        abs_path = resolve_mount_path(mount_point)
+        mount_point = resolve_mount_path(mount_point)
+        abs_path = resolve_folder_path(mount_point, body.sub_path)
     except ValueError as error:
         return ApiResponse(msg=str(error))
+
+    if not os.path.ismount(mount_point):
+        return ApiResponse(msg="Mount point does not exist")
 
     if not os.path.isdir(abs_path):
         return ApiResponse(msg="Path not found")

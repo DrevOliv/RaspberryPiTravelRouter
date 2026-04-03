@@ -13,6 +13,14 @@ class MountPoint(BaseModel):
     mount_point: str = Field(..., description="e.g. /mnt/drives/my_drive")
 
 
+class FolderRequest(BaseModel):
+    mount_point: str = Field(..., description="e.g. /mnt/drives/my_drive")
+    sub_path: str = Field(
+        "",
+        description="Optional folder path inside the mount point, e.g. Movies or /mnt/drives/my_drive/Movies",
+    )
+
+
 class AvailableDevice(BaseModel):
     device: str = Field(..., description="e.g. /dev/sdb1")
     name: str = Field(..., description="e.g. sdb1")

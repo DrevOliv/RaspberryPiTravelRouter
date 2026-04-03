@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 
 from TravelRouter.components.rsync.data_models import (
     AvailableDevice,
@@ -24,6 +25,23 @@ def resolve_mount_path(path: str) -> str:
         raise ValueError("Path traversal not allowed")
 
     return mount_point
+
+
+def resolve_folder_path(mount_point: str, sub_path: str = "") -> str:
+    mount_root = resolve_mount_path(mount_point)
+    requested_sub_path = sub_path.strip()
+
+    if requested_sub_path in ("", ".", "/"):
+        folder_path = mount_root
+    elif os.path.isabs(requested_sub_path):
+        folder_path = os.path.realpath(requested_sub_path)
+    else:
+        folder_path = os.path.realpath(os.path.join(mount_root, requested_sub_path))
+
+    if os.path.commonpath([mount_root, folder_path]) != mount_root:
+        raise ValueError("Path traversal not allowed")
+
+    return folder_path
 
 
 def make_dirs(path: str) -> str:
@@ -84,6 +102,25 @@ def parse_lsblk(json_data: dict) -> AvailableDevices:
     return AvailableDevices(devices=available)
 
 
+def find_device_mount_point(device: str) -> str | None:
+    device_path = os.path.realpath(device.strip())
+    mounts_file = Path("/proc/self/mounts")
+    if not device_path or not mounts_file.exists():
+        return None
+
+    with mounts_file.open("r", encoding="utf-8") as mounts:
+        for line in mounts:
+            fields = line.split()
+            if len(fields) < 2:
+                continue
+
+            mounted_device = os.path.realpath(fields[0])
+            if mounted_device == device_path:
+                return fields[1].replace("\\040", " ")
+
+    return None
+
+
 def scan_dir(abs_path: str) -> Dirs:
     safe_path = resolve_mount_path(abs_path)
     entries = []
@@ -101,4 +138,3 @@ def scan_dir(abs_path: str) -> Dirs:
 
     entries.sort(key=lambda x: x.name.lower())
     return Dirs(dirs=entries)
-
