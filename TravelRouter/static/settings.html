@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#161b22">
   <title>Settings — Travel Router</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -197,15 +200,19 @@ async function loadExitNodes() {
     return;
   }
 
+  // Resolve saved IP back to a hostname for display
+  const savedEntry = savedNode ? nodes.find(n => n.ip_address === savedNode) : null;
+  const savedDisplay = savedEntry ? savedEntry.hostname : savedNode || null;
+
   hint.textContent = `${nodes.length} exit node${nodes.length !== 1 ? 's' : ''} available.`
-    + (savedNode ? `  Saved: ${savedNode}` : '');
+    + (savedDisplay ? `  Saved: ${savedDisplay}` : '');
 
   select.innerHTML = '<option value="">— Select exit node —</option>';
   nodes.forEach(n => {
     const opt = document.createElement('option');
-    opt.value       = n.hostname;
+    opt.value       = n.ip_address;          // IP — passed to tailscale set --exit-node=<ip>
     opt.textContent = `${n.hostname}  (${n.ip_address})`;
-    if (savedNode && n.hostname === savedNode) opt.selected = true;
+    if (savedNode && n.ip_address === savedNode) opt.selected = true;
     select.appendChild(opt);
   });
 
@@ -270,12 +277,16 @@ async function saveExitNode() {
     return;
   }
 
+  // Find the hostname for display in the success message
+  const selectedOption = document.getElementById('exit-select').selectedOptions[0];
+  const displayName = selectedOption ? selectedOption.textContent.split('  ')[0] : val;
+
   setBusy('save-exit-btn', true, 'Save Exit Node');
   const r = await api('POST', '/tailscale/selection', { exit_node: val });
   setBusy('save-exit-btn', false, 'Save Exit Node');
 
   const ok  = r && r.success;
-  const msg = ok ? `Exit node set to ${val}` : ((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to save');
+  const msg = ok ? `Exit node set to ${displayName}` : ((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to save');
   setStatus('exit-status', msg, ok);
   toast(msg, ok ? 'success' : 'error');
 }

@@ -2,7 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#161b22">
   <title>Travel Router</title>
   <link rel="stylesheet" href="/static/style.css">
 </head>
@@ -163,18 +166,28 @@ function toast(msg, type = 'info') {
 
 // ─── State ──────────────────────────────────────────────────────────────────
 
-let tsStatus       = null;
-let connectingSSID = null;
-let wifiBusy       = false;
-let tsBusy         = false;
-let firstWifi      = true;
-let firstTs        = true;
+let tsStatus        = null;
+let savedExitNodeIP = null;   // IP saved in settings (may differ from active node)
+let connectingSSID  = null;
+let wifiBusy        = false;
+let tsBusy          = false;
+let firstWifi       = true;
+let firstTs         = true;
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 async function checkAuth() {
   const r = await api('GET', '/api/auth/session');
   return r !== null; // null = redirected to login
+}
+
+// ─── Saved exit node (fetched once on load) ──────────────────────────────────
+
+async function fetchSavedConfig() {
+  const r = await api('GET', '/settings/config');
+  if (r && r.success && r.msg.exit_node) {
+    savedExitNodeIP = r.msg.exit_node;
+  }
 }
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
@@ -419,17 +432,26 @@ function renderDevices(devices) {
 // ─── UI: Tailscale ───────────────────────────────────────────────────────────
 
 function updateTsUI(s) {
-  document.getElementById('ts-dot').className       = 'dot ' + (s.online ? 'green' : 'red');
+  document.getElementById('ts-dot').className        = 'dot ' + (s.online ? 'green' : 'red');
   document.getElementById('ts-chip-val').textContent = s.online ? 'Online' : 'Offline';
 
   const stateEl = document.getElementById('ts-state');
-  stateEl.textContent  = s.online ? 'Online' : 'Offline';
-  stateEl.style.color  = s.online ? 'var(--green)' : 'var(--red)';
+  stateEl.textContent = s.online ? 'Online' : 'Offline';
+  stateEl.style.color = s.online ? 'var(--green)' : 'var(--red)';
+
+  // Resolve a hostname label for the saved IP (if we know it from exit_node_servers)
+  const savedHostname = savedExitNodeIP
+    ? ((s.exit_node_servers || []).find(n => n.ip_address === savedExitNodeIP) || {}).hostname || savedExitNodeIP
+    : null;
 
   const nodeEl = document.getElementById('ts-node-label');
-  nodeEl.textContent = s.exit_node_server
-    ? 'Exit: ' + s.exit_node_server
-    : (s.online ? 'No exit node active' : '');
+  if (s.exit_node && s.exit_node_server) {
+    nodeEl.textContent = 'Via: ' + s.exit_node_server;
+  } else if (savedHostname) {
+    nodeEl.textContent = 'Selected: ' + savedHostname;
+  } else {
+    nodeEl.textContent = s.online ? 'No exit node selected' : '';
+  }
 
   const btn = document.getElementById('ts-toggle-btn');
   btn.disabled    = false;
@@ -441,9 +463,13 @@ function updateTsUI(s) {
   toggle.checked  = !!s.exit_node;
 
   const sub = document.getElementById('exit-node-sub');
-  sub.textContent = s.exit_node_server
-    ? s.exit_node_server
-    : 'Select an exit node in Settings';
+  if (s.exit_node && s.exit_node_server) {
+    sub.textContent = s.exit_node_server + ' — active';
+  } else if (savedHostname) {
+    sub.textContent = savedHostname + ' — not active';
+  } else {
+    sub.textContent = 'Select an exit node in Settings';
+  }
 }
 
 async function handleTsToggle() {
@@ -519,6 +545,9 @@ function closeQr(e) {
 (async () => {
   const ok = await checkAuth();
   if (!ok) return;
+
+  // Fetch saved config once (fast — just reads data.json)
+  fetchSavedConfig();
 
   // Kick off both polls immediately
   pollWifi();
