@@ -17,6 +17,7 @@
     Travel Router
   </a>
   <div class="nav-spacer"></div>
+  <a href="/drives-page" class="nav-btn">&#x1F4BE; Drives</a>
   <a href="/settings-page" class="nav-btn">&#x2699;&#xFE0F; Settings</a>
   <button class="nav-btn" id="logout-btn">Sign out</button>
 </nav>
@@ -28,16 +29,12 @@
     <div class="chip">
       <div class="dot" id="wifi-dot"></div>
       <span class="chip-label">WiFi</span>
-      <span class="chip-val" id="wifi-chip-val">—</span>
+      <span class="chip-val" id="wifi-chip-val">&#x2014;</span>
     </div>
     <div class="chip">
       <div class="dot" id="ts-dot"></div>
       <span class="chip-label">Tailscale</span>
-      <span class="chip-val" id="ts-chip-val">—</span>
-    </div>
-    <div class="chip" style="cursor:pointer;" id="qr-chip" title="Show AP QR code">
-      <span>&#x1F4F2;</span>
-      <span class="chip-label">AP QR</span>
+      <span class="chip-val" id="ts-chip-val">&#x2014;</span>
     </div>
   </div>
 
@@ -45,13 +42,13 @@
   <div class="grid-2">
 
     <!-- LEFT: WiFi Networks -->
-    <div class="col">
+    <div class="col col-wifi">
       <div class="card">
         <div class="card-head">
           <div class="card-title">
             <span>&#x1F4F6;</span> Networks
           </div>
-          <span class="badge" id="net-badge">—</span>
+          <span class="badge" id="net-badge">&#x2014;</span>
         </div>
         <div id="networks-body">
           <!-- skeleton -->
@@ -64,8 +61,19 @@
       </div>
     </div>
 
-    <!-- RIGHT: Tailscale + Devices -->
-    <div class="col">
+    <!-- RIGHT: QR + Tailscale + Devices -->
+    <div class="col col-right">
+
+      <!-- AP QR Code -->
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title"><span>&#x1F4F2;</span> AP QR Code</div>
+          <button class="btn btn-sm btn-ghost" onclick="loadQr()">&#x21BB;</button>
+        </div>
+        <div id="qr-content" style="padding:20px;text-align:center;">
+          <div class="skel" style="height:200px;width:200px;margin:auto;border-radius:8px;"></div>
+        </div>
+      </div>
 
       <!-- Tailscale -->
       <div class="card">
@@ -75,11 +83,11 @@
         <div class="ts-body">
           <div class="ts-icon">&#x1F310;</div>
           <div class="ts-info">
-            <div class="ts-state" id="ts-state">—</div>
+            <div class="ts-state" id="ts-state">&#x2014;</div>
             <div class="ts-node"  id="ts-node-label"></div>
           </div>
           <button class="btn btn-sm btn-secondary" id="ts-toggle-btn" onclick="handleTsToggle()" disabled>
-            …
+            &#x2026;
           </button>
         </div>
         <div class="toggle-row" id="exit-node-row">
@@ -98,10 +106,10 @@
       <div class="card">
         <div class="card-head">
           <div class="card-title"><span>&#x1F4BB;</span> Connected Devices</div>
-          <span class="badge" id="dev-badge">—</span>
+          <span class="badge" id="dev-badge">&#x2014;</span>
         </div>
         <div id="devices-body">
-          <div class="card-empty">Loading…</div>
+          <div class="card-empty">Loading&#x2026;</div>
         </div>
       </div>
 
@@ -112,13 +120,16 @@
 <!-- Toast container -->
 <div id="toasts"></div>
 
-<!-- QR modal (hidden) -->
-<div class="modal-backdrop" id="qr-modal" style="display:none;" onclick="closeQr(event)">
+<!-- WiFi Password Modal -->
+<div class="modal-backdrop" id="pw-modal" style="display:none;" onclick="closePwModal(event)">
   <div class="modal" onclick="event.stopPropagation()">
-    <h3>AP QR Code</h3>
-    <p>Scan to connect to the travel router access point</p>
-    <div id="qr-content">Loading…</div>
-    <button class="btn btn-secondary modal-close" onclick="closeQr()">Close</button>
+    <h3 id="pw-modal-title" style="margin-bottom:6px;word-break:break-all;"></h3>
+    <p id="pw-modal-sub" style="margin-bottom:16px;"></p>
+    <div id="pw-modal-fields"></div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-primary btn-full" id="pw-modal-btn"></button>
+      <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closePwModal()">Cancel</button>
+    </div>
   </div>
 </div>
 
@@ -184,7 +195,7 @@ function toast(msg, type = 'info') {
 // ─── State ──────────────────────────────────────────────────────────────────
 
 let tsStatus        = null;
-let savedExitNodeIP = null;   // IP saved in settings (may differ from active node)
+let savedExitNodeIP = null;
 let connectingSSID  = null;
 let wifiBusy        = false;
 let tsBusy          = false;
@@ -288,8 +299,8 @@ function signalBars(sig) {
 }
 
 function renderNetworks(networks, current) {
-  const body    = document.getElementById('networks-body');
-  const badge   = document.getElementById('net-badge');
+  const body  = document.getElementById('networks-body');
+  const badge = document.getElementById('net-badge');
   badge.textContent = networks.length;
 
   if (!networks.length) {
@@ -299,20 +310,17 @@ function renderNetworks(networks, current) {
 
   const connSSID = (current && current.ssid !== '--') ? current.ssid : null;
 
-  // Sort: connected first, then by signal desc
   const sorted = [...networks].sort((a, b) => {
     if (a.ssid === connSSID) return -1;
     if (b.ssid === connSSID) return  1;
     return b.signal - a.signal;
   });
 
-  // Check if list order has changed — avoid full rebuild if only signal changed
   const existing = [...body.querySelectorAll('.net-item')].map(el => el.dataset.ssid);
   const incoming = sorted.map(n => n.ssid);
   const sameOrder = existing.length === incoming.length && existing.every((s,i) => s === incoming[i]);
 
   if (sameOrder) {
-    // Just refresh signal bars + connection badges without disturbing open forms
     sorted.forEach(net => {
       const item = body.querySelector(`.net-item[data-ssid="${CSS.escape(net.ssid)}"]`);
       if (!item) return;
@@ -334,7 +342,6 @@ function renderNetworks(networks, current) {
     return;
   }
 
-  // Full rebuild
   body.innerHTML = '';
   sorted.forEach(net => {
     const item = document.createElement('div');
@@ -358,79 +365,82 @@ function renderNetworks(networks, current) {
         ${net.ssid === connSSID
           ? '<span class="net-badge connected">Connected</span>'
           : net.ssid === connectingSSID
-            ? '<span class="net-badge connecting">Connecting…</span>'
+            ? '<span class="net-badge connecting">Connecting&#x2026;</span>'
             : ''}
       </div>`;
 
-    row.addEventListener('click', () => toggleConnectForm(item));
+    row.addEventListener('click', () => openPwModal(item.dataset.ssid, item.dataset.open === 'true', item.classList.contains('is-connected')));
     item.appendChild(row);
     body.appendChild(item);
   });
 }
 
-function toggleConnectForm(item) {
-  const existing = item.querySelector('.connect-form');
-  if (existing) { existing.remove(); return; }
+// ─── UI: WiFi Password Modal ─────────────────────────────────────────────────
 
-  // Close any other open form
-  document.querySelectorAll('.connect-form').forEach(f => f.remove());
+let pwModalSSID   = null;
+let pwModalIsOpen = false;
 
-  const ssid   = item.dataset.ssid;
-  const isOpen = item.dataset.open === 'true';
-  const isConn = item.classList.contains('is-connected');
+function openPwModal(ssid, isOpen, isConn) {
+  pwModalSSID   = ssid;
+  pwModalIsOpen = isOpen;
 
-  const form = document.createElement('div');
-  form.className = 'connect-form';
+  document.getElementById('pw-modal-title').textContent = ssid;
 
-  const row = document.createElement('div');
-  row.className = 'form-row';
+  const fieldsEl = document.getElementById('pw-modal-fields');
+  fieldsEl.innerHTML = '';
 
-  let pwInput = null;
-  if (!isOpen && !isConn) {
-    pwInput = document.createElement('input');
-    pwInput.type        = 'password';
-    pwInput.placeholder = 'Password';
-    pwInput.style.flex  = '1';
-    row.appendChild(pwInput);
+  const subEl = document.getElementById('pw-modal-sub');
+  const btn   = document.getElementById('pw-modal-btn');
+
+  if (isConn) {
+    subEl.textContent  = 'Already connected. Reconnect?';
+    btn.textContent    = 'Reconnect';
+  } else if (isOpen) {
+    subEl.textContent = 'Open network — no password required.';
+    btn.textContent   = 'Connect';
+  } else {
+    subEl.textContent = 'Enter the WiFi password to connect.';
+    btn.textContent   = 'Connect';
+    const input = document.createElement('input');
+    input.type        = 'password';
+    input.id          = 'pw-input';
+    input.placeholder = 'Password';
+    input.style.width = '100%';
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submitPwModal(); });
+    fieldsEl.appendChild(input);
+    setTimeout(() => input.focus(), 80);
   }
 
-  const connectBtn = document.createElement('button');
-  connectBtn.className = 'btn btn-primary btn-sm';
-  connectBtn.textContent = isConn ? 'Reconnect' : 'Connect';
-  connectBtn.addEventListener('click', () => {
-    doConnect(ssid, isOpen, pwInput ? pwInput.value : '');
-  });
+  btn.onclick = submitPwModal;
+  document.getElementById('pw-modal').style.display = 'flex';
+}
 
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className   = 'btn btn-ghost btn-sm';
-  cancelBtn.textContent = 'Cancel';
-  cancelBtn.addEventListener('click', () => form.remove());
-
-  row.appendChild(connectBtn);
-  row.appendChild(cancelBtn);
-  form.appendChild(row);
-  item.appendChild(form);
-
-  if (pwInput) {
-    pwInput.focus();
-    pwInput.addEventListener('keydown', e => {
-      if (e.key === 'Enter') doConnect(ssid, isOpen, pwInput.value);
-    });
+function closePwModal(e) {
+  if (!e || e.target === document.getElementById('pw-modal')) {
+    document.getElementById('pw-modal').style.display = 'none';
+    pwModalSSID = null;
   }
 }
 
+function submitPwModal() {
+  const ssid   = pwModalSSID;
+  const isOpen = pwModalIsOpen;
+  const input  = document.getElementById('pw-input');
+  const pw     = input ? input.value : '';
+  closePwModal();
+  if (ssid) doConnect(ssid, isOpen, pw);
+}
+
 async function doConnect(ssid, isOpen, password) {
-  // Close form, mark as connecting
-  document.querySelectorAll('.connect-form').forEach(f => f.remove());
   connectingSSID = ssid;
 
   const item = document.querySelector(`.net-item[data-ssid="${CSS.escape(ssid)}"]`);
   if (item) {
     item.classList.add('is-connecting');
     const badge = item.querySelector('.net-badge');
-    if (badge) { badge.className = 'net-badge connecting'; badge.textContent = 'Connecting…'; }
+    if (badge) { badge.className = 'net-badge connecting'; badge.textContent = 'Connecting\u2026'; }
     else item.querySelector('.net-meta')
-      .insertAdjacentHTML('beforeend', '<span class="net-badge connecting">Connecting…</span>');
+      .insertAdjacentHTML('beforeend', '<span class="net-badge connecting">Connecting\u2026</span>');
   }
 
   const body = { ssid };
@@ -481,7 +491,6 @@ function updateTsUI(s) {
   stateEl.textContent = s.online ? 'Online' : 'Offline';
   stateEl.style.color = s.online ? 'var(--green)' : 'var(--red)';
 
-  // Resolve a hostname label for the saved IP (if we know it from exit_node_servers)
   const savedHostname = savedExitNodeIP
     ? ((s.exit_node_servers || []).find(n => n.ip_address === savedExitNodeIP) || {}).hostname || null
     : null;
@@ -506,9 +515,9 @@ function updateTsUI(s) {
 
   const sub = document.getElementById('exit-node-sub');
   if (s.exit_node && savedHostname) {
-    sub.textContent = savedHostname + ' — active';
+    sub.textContent = savedHostname + ' \u2014 active';
   } else if (savedHostname) {
-    sub.textContent = savedHostname + ' — not active';
+    sub.textContent = savedHostname + ' \u2014 not active';
   } else {
     sub.textContent = 'Select an exit node in Settings';
   }
@@ -546,7 +555,7 @@ async function handleExitToggle(enable) {
     updateTsUI(r.msg);
     toast(enable ? 'Exit node enabled' : 'Exit node disabled', 'success');
   } else {
-    toggle.checked = !enable; // revert
+    toggle.checked = !enable;
     const msg = r && typeof r.msg === 'string' ? r.msg : '';
     if (msg.toLowerCase().includes('choose')) {
       toast('Select an exit node in Settings first', 'warning');
@@ -556,29 +565,22 @@ async function handleExitToggle(enable) {
   }
 }
 
-// ─── QR Code ─────────────────────────────────────────────────────────────────
+// ─── QR Code (auto-load) ─────────────────────────────────────────────────────
 
-document.getElementById('qr-chip').addEventListener('click', openQr);
-
-async function openQr() {
-  document.getElementById('qr-modal').style.display = 'flex';
-  document.getElementById('qr-content').innerHTML = '<div class="skel" style="height:200px;width:200px;margin:auto;"></div>';
+async function loadQr() {
+  const el = document.getElementById('qr-content');
+  el.innerHTML = '<div class="skel" style="height:200px;width:200px;margin:auto;border-radius:8px;"></div>';
   try {
     const res = await fetch('/wifi/ap-qr', { credentials: 'include' });
     if (res.ok) {
       const svg = await res.text();
-      document.getElementById('qr-content').innerHTML = svg;
+      el.innerHTML = `<div style="display:inline-block;max-width:220px;">${svg}</div>`;
+      el.querySelector('svg') && Object.assign(el.querySelector('svg').style, { maxWidth: '100%', height: 'auto', borderRadius: '8px' });
     } else {
-      document.getElementById('qr-content').textContent = 'Could not load QR code';
+      el.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Could not load QR code</span>';
     }
   } catch {
-    document.getElementById('qr-content').textContent = 'Network error';
-  }
-}
-
-function closeQr(e) {
-  if (!e || e.target === document.getElementById('qr-modal')) {
-    document.getElementById('qr-modal').style.display = 'none';
+    el.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Network error</span>';
   }
 }
 
@@ -591,17 +593,14 @@ function startDashboardPage() {
   void fetchSavedConfig();
   void pollWifi();
   void pollTs();
+  void loadQr();
 
   if (wifiPollTimer === null) {
-    wifiPollTimer = setInterval(() => {
-      void pollWifi();
-    }, 1000);
+    wifiPollTimer = setInterval(() => { void pollWifi(); }, 1000);
   }
 
   if (tsPollTimer === null) {
-    tsPollTimer = setInterval(() => {
-      void pollTs();
-    }, 4000);
+    tsPollTimer = setInterval(() => { void pollTs(); }, 4000);
   }
 }
 

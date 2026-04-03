@@ -33,6 +33,11 @@ async def _serve_login() -> FileResponse:
 async def _serve_settings_page() -> FileResponse:
     return FileResponse(os.path.join(_STATIC_DIR, "settings.html"))
 
+
+@_pages_router.get("/drives-page", include_in_schema=False)
+async def _serve_drives_page() -> FileResponse:
+    return FileResponse(os.path.join(_STATIC_DIR, "drives.html"))
+
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
     "API for the Pi Travel Router web UI, including Wi-Fi, Tailscale, Jellyfin, "
