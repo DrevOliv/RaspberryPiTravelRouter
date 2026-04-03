@@ -227,6 +227,7 @@ async function fetchSavedConfig() {
   const r = await api('GET', '/settings/config');
   if (r && r.success && r.msg.exit_node) {
     savedExitNodeIP = r.msg.exit_node;
+    if (tsStatus) updateTsUI(tsStatus);
   }
 }
 
@@ -482,12 +483,12 @@ function updateTsUI(s) {
 
   // Resolve a hostname label for the saved IP (if we know it from exit_node_servers)
   const savedHostname = savedExitNodeIP
-    ? ((s.exit_node_servers || []).find(n => n.ip_address === savedExitNodeIP) || {}).hostname || savedExitNodeIP
+    ? ((s.exit_node_servers || []).find(n => n.ip_address === savedExitNodeIP) || {}).hostname || null
     : null;
 
   const nodeEl = document.getElementById('ts-node-label');
-  if (s.exit_node && s.exit_node_server) {
-    nodeEl.textContent = 'Via: ' + s.exit_node_server;
+  if (s.exit_node && savedHostname) {
+    nodeEl.textContent = 'Via: ' + savedHostname;
   } else if (savedHostname) {
     nodeEl.textContent = 'Selected: ' + savedHostname;
   } else {
@@ -504,8 +505,8 @@ function updateTsUI(s) {
   toggle.checked  = !!s.exit_node;
 
   const sub = document.getElementById('exit-node-sub');
-  if (s.exit_node && s.exit_node_server) {
-    sub.textContent = s.exit_node_server + ' — active';
+  if (s.exit_node && savedHostname) {
+    sub.textContent = savedHostname + ' — active';
   } else if (savedHostname) {
     sub.textContent = savedHostname + ' — not active';
   } else {
