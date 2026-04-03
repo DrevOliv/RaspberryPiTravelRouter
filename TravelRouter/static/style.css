@@ -76,6 +76,8 @@ a:hover { text-decoration: underline; }
 
 .nav-spacer { flex: 1; }
 
+.nav-icon-btn { padding: 7px 10px; font-size: 17px; }
+
 .nav-btn {
   background: none;
   border: 1px solid var(--border);
@@ -670,6 +672,64 @@ select {
   .toast { min-width: unset; max-width: unset; width: 100%; }
 }
 
+/* ── Bottom navigation bar (phone) ── */
+.bottom-nav { display: none; }
+
+@media (max-width: 640px) {
+  /* Collapse top-bar nav items — keep brand + health chip only */
+  .navbar .nav-btn,
+  .navbar .nav-icon-btn { display: none; }
+
+  /* Extra bottom padding so content clears the bottom bar */
+  .page { padding-bottom: calc(76px + env(safe-area-inset-bottom)); }
+
+  /* Lift toasts above the bottom bar */
+  #toasts { bottom: calc(76px + env(safe-area-inset-bottom)); }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 200;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left:  env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+.bottom-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 10px 4px 8px;
+  color: var(--text-sub);
+  text-decoration: none;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transition: color 0.15s;
+  cursor: pointer;
+  background: none;
+  border: none;
+  font-family: inherit;
+  min-height: 58px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.bottom-nav-item:hover  { color: var(--text); text-decoration: none; }
+.bottom-nav-item:active { opacity: 0.7; }
+.bottom-nav-item.active { color: var(--accent); }
+
+.bottom-nav-icon { font-size: 22px; line-height: 1; display: block; }
+
 /* ── Health chip (navbar) ── */
 .health-chip {
   display: inline-flex;
@@ -752,7 +812,7 @@ select {
 }
 
 .qr-svg-wrap svg {
-  max-width: 200px;
+  max-width: 270px;
   height: auto;
   border-radius: 8px;
   display: block;

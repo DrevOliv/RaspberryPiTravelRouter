@@ -21,7 +21,7 @@
     <div class="dot"></div>
     <span id="health-label">API</span>
   </div>
-  <a href="/" class="nav-btn">&#x2190; Home</a>
+  <a href="/" class="nav-btn nav-icon-btn" title="Home">&#x1F3E0;</a>
   <a href="/settings-page" class="nav-btn">&#x2699;&#xFE0F; Settings</a>
   <button class="nav-btn" id="logout-btn">Sign out</button>
 </nav>
@@ -59,6 +59,26 @@
 
 <!-- Toast container -->
 <div id="toasts"></div>
+
+<!-- Bottom navigation (shown on mobile only) -->
+<nav class="bottom-nav">
+  <a href="/" class="bottom-nav-item">
+    <span class="bottom-nav-icon">&#x1F3E0;</span>
+    <span>Home</span>
+  </a>
+  <a href="/drives-page" class="bottom-nav-item active">
+    <span class="bottom-nav-icon">&#x1F4BE;</span>
+    <span>Drives</span>
+  </a>
+  <a href="/settings-page" class="bottom-nav-item">
+    <span class="bottom-nav-icon">&#x2699;&#xFE0F;</span>
+    <span>Settings</span>
+  </a>
+  <button class="bottom-nav-item" onclick="document.getElementById('logout-btn').click()">
+    <span class="bottom-nav-icon">&#x1F6AA;</span>
+    <span>Sign out</span>
+  </button>
+</nav>
 
 <!-- Mount label modal -->
 <div class="modal-backdrop" id="mount-modal" style="display:none;" onclick="closeMountModal(event)">

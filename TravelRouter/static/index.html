@@ -79,7 +79,7 @@
           <button class="btn btn-sm btn-ghost" onclick="loadQr()" title="Refresh QR code" style="flex-shrink:0;">&#x21BB;</button>
         </div>
         <div class="qr-svg-wrap" id="qr-svg-wrap">
-          <div class="skel" style="height:180px;width:180px;border-radius:10px;"></div>
+          <div class="skel" style="height:270px;width:270px;border-radius:10px;"></div>
         </div>
         <div class="qr-caption">Scan with your phone camera to join this network</div>
       </div>
@@ -128,6 +128,26 @@
 
 <!-- Toast container -->
 <div id="toasts"></div>
+
+<!-- Bottom navigation (shown on mobile only) -->
+<nav class="bottom-nav">
+  <a href="/" class="bottom-nav-item active">
+    <span class="bottom-nav-icon">&#x1F3E0;</span>
+    <span>Home</span>
+  </a>
+  <a href="/drives-page" class="bottom-nav-item">
+    <span class="bottom-nav-icon">&#x1F4BE;</span>
+    <span>Drives</span>
+  </a>
+  <a href="/settings-page" class="bottom-nav-item">
+    <span class="bottom-nav-icon">&#x2699;&#xFE0F;</span>
+    <span>Settings</span>
+  </a>
+  <button class="bottom-nav-item" onclick="document.getElementById('logout-btn').click()">
+    <span class="bottom-nav-icon">&#x1F6AA;</span>
+    <span>Sign out</span>
+  </button>
+</nav>
 
 <!-- WiFi Password Modal -->
 <div class="modal-backdrop" id="pw-modal" style="display:none;" onclick="closePwModal(event)">
@@ -593,14 +613,14 @@ async function handleExitToggle(enable) {
 
 async function loadQr() {
   const wrap = document.getElementById('qr-svg-wrap');
-  wrap.innerHTML = '<div class="skel" style="height:180px;width:180px;border-radius:10px;"></div>';
+  wrap.innerHTML = '<div class="skel" style="height:270px;width:270px;border-radius:10px;"></div>';
   try {
     const res = await fetch('/wifi/ap-qr', { credentials: 'include' });
     if (res.ok) {
       const svg = await res.text();
-      wrap.innerHTML = svg;
+      wrap.innerHTML = `<div style="background:#fff;padding:10px;border-radius:10px;display:inline-block;line-height:0;">${svg}</div>`;
       const svgEl = wrap.querySelector('svg');
-      if (svgEl) { svgEl.style.maxWidth = '200px'; svgEl.style.height = 'auto'; svgEl.style.borderRadius = '10px'; }
+      if (svgEl) { svgEl.style.maxWidth = '270px'; svgEl.style.height = 'auto'; svgEl.style.display = 'block'; }
     } else {
       wrap.innerHTML = '<span style="color:var(--text-sub);font-size:14px;">Could not load QR code</span>';
     }
