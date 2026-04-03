@@ -4,7 +4,7 @@ def tailscale_status()->CmdStatus:
     return run_command(["tailscale", "status", "--json"])
 
 def tailscale_up()->CmdStatus:
-    return run_command(["sudo","tailscale", "up", "--accept-routes"])
+    return run_command(["sudo","tailscale", "up", "--reset", "--accept-routes"])
 
 def tailscale_down()->CmdStatus:
     return run_command(["sudo","tailscale", "down"])

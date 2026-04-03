@@ -567,6 +567,23 @@ function updateTsUI(s) {
   }
 }
 
+// After any Tailscale action, cancel the normal 4 s timer and fire several
+// quick polls (1 s, 2 s, 3 s, 5 s) so the UI catches up as soon as the
+// daemon finishes, then resume normal polling.
+function scheduleTsRefresh() {
+  if (tsPollTimer !== null) { clearInterval(tsPollTimer); tsPollTimer = null; }
+
+  [1000, 2000, 3000, 5000].forEach(delay => {
+    setTimeout(() => { if (!isLeavingPage) void pollTs(); }, delay);
+  });
+
+  setTimeout(() => {
+    if (!isLeavingPage && tsPollTimer === null) {
+      tsPollTimer = setInterval(() => { void pollTs(); }, 4000);
+    }
+  }, 6000);
+}
+
 async function handleTsToggle() {
   if (!tsStatus) return;
   const btn = document.getElementById('ts-toggle-btn');
@@ -585,6 +602,8 @@ async function handleTsToggle() {
     btn.disabled = false;
     btn.textContent = tsStatus.online ? 'Disconnect' : 'Connect';
   }
+
+  scheduleTsRefresh();
 }
 
 async function handleExitToggle(enable) {
@@ -607,6 +626,8 @@ async function handleExitToggle(enable) {
       toast(msg || 'Action failed', 'error');
     }
   }
+
+  scheduleTsRefresh();
 }
 
 // ─── QR Code (auto-load) ─────────────────────────────────────────────────────
