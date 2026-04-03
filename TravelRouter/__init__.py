@@ -1,6 +1,6 @@
 import os
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +12,25 @@ from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
 from TravelRouter.config_file import DataManager
 from TravelRouter.helpers import ApiResponse, build_api_response, dump_api_response
+
+_STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+
+_pages_router = APIRouter()
+
+
+@_pages_router.get("/", include_in_schema=False)
+async def _serve_index() -> FileResponse:
+    return FileResponse(os.path.join(_STATIC_DIR, "index.html"))
+
+
+@_pages_router.get("/login", include_in_schema=False)
+async def _serve_login() -> FileResponse:
+    return FileResponse(os.path.join(_STATIC_DIR, "login.html"))
+
+
+@_pages_router.get("/settings-page", include_in_schema=False)
+async def _serve_settings_page() -> FileResponse:
+    return FileResponse(os.path.join(_STATIC_DIR, "settings.html"))
 
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
@@ -65,26 +84,13 @@ def create_app() -> FastAPI:
 
     app.state.auth_manager = auth_manager
 
+    app.include_router(_pages_router)
     app.include_router(auth_api)
     app.include_router(settings_router)
     app.include_router(tailscale_router)
     app.include_router(wifi_router)
     register_exception_handlers(app)
 
-    static_dir = os.path.join(os.path.dirname(__file__), "static")
-
-    @app.get("/", include_in_schema=False)
-    async def serve_index():
-        return FileResponse(os.path.join(static_dir, "index.html"))
-
-    @app.get("/login", include_in_schema=False)
-    async def serve_login():
-        return FileResponse(os.path.join(static_dir, "login.html"))
-
-    @app.get("/settings-page", include_in_schema=False)
-    async def serve_settings():
-        return FileResponse(os.path.join(static_dir, "settings.html"))
-
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     return app
