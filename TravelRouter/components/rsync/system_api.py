@@ -27,6 +27,7 @@ class Job:
         self.exit_code:  int | None = None
         self.pid:        int | None = None
         self._proc:      subprocess.Popen | None = None
+        self._stop_requested = threading.Event()
         self._output:    deque[str] = deque(maxlen=2000)
         self._output_offset = 0
         self._log:       deque[str] = deque(maxlen=200)  # non-progress lines only
@@ -34,6 +35,9 @@ class Job:
         self._on_update  = on_update   # global event shared across all jobs
 
     def append(self, line: str, important: bool = False) -> None:
+        if not line:
+            return
+
         with self._lock:
             if self._output.maxlen and len(self._output) == self._output.maxlen:
                 self._output_offset += 1
@@ -109,6 +113,29 @@ class JobManager:
             req.destination,
         ]
 
+    @staticmethod
+    def _terminate_process(proc: subprocess.Popen, timeout: int = 5) -> None:
+        if proc.poll() is not None:
+            return
+
+        try:
+            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        else:
+            try:
+                proc.wait(timeout=timeout)
+                return
+            except subprocess.TimeoutExpired:
+                pass
+
+        if proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            proc.wait()
+
     def start(self, req: StartJobRequest) -> Job:
         job_id = str(uuid.uuid4())
         job    = Job(job_id, req, on_update=self.any_update)
@@ -124,6 +151,9 @@ class JobManager:
     def _run(self, job: Job, cmd: list[str]) -> None:
         try:
             while True:
+                if job._stop_requested.is_set():
+                    break
+
                 # --- run one attempt ---
                 try:
                     proc = subprocess.Popen(
@@ -134,12 +164,28 @@ class JobManager:
                         bufsize=1,
                         start_new_session=True,
                     )
-                    job._proc = proc
-                    job.pid   = proc.pid
+
+                    with job._lock:
+                        job._proc = proc
+                        job.pid   = proc.pid
+                        stop_requested = job._stop_requested.is_set()
+
+                    if stop_requested:
+                        self._terminate_process(proc)
+
+                    if proc.stdout is None:
+                        proc.wait()
+                        job.exit_code = proc.returncode
+                        continue
 
                     for raw in proc.stdout:
+                        if job._stop_requested.is_set():
+                            self._terminate_process(proc)
+                            break
+
                         line = raw.rstrip()
                         job.append(line, important=not parse_progress(line))
+
                     proc.stdout.close()
 
                     proc.wait()
@@ -173,7 +219,7 @@ class JobManager:
                     # sleep in small increments so a stop() call is noticed quickly
                     deadline = time.monotonic() + job.retry_delay
                     while time.monotonic() < deadline:
-                        if job.status == JobStatus.STOPPED:
+                        if job._stop_requested.is_set():
                             break
                         time.sleep(1)
 
@@ -203,21 +249,12 @@ class JobManager:
             if job.status not in (JobStatus.RUNNING, JobStatus.WAITING):
                 return None
             job.status = JobStatus.STOPPED
-        proc = job._proc
-        if proc and proc.poll() is None:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            else:
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
-                    proc.wait()
+            job._stop_requested.set()
+            proc = job._proc
+
+        if proc:
+            self._terminate_process(proc)
+
         if self.any_update:
             self.any_update.set()
         return job

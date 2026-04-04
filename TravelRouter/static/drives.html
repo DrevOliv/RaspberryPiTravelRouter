@@ -396,7 +396,7 @@ function buildJobCard(job) {
 
   const canStop = job.status === 'running' || job.status === 'waiting';
   const hasError = job.status === 'failed' || (job.exit_code !== null && job.exit_code !== 0);
-  const hasLogs = job.logs && job.logs.length > 0;
+  const hasLogs = job.logs && job.logs.some(line => String(line).trim());
 
   const srcShort = job.source
     ? job.source.replace(/\/$/, '').split('/').pop() || job.source
@@ -485,7 +485,7 @@ function openLogModal(jobId) {
   if (!terminal) return;
 
   terminal.innerHTML = '';
-  const logs = (job && job.logs) || [];
+  const logs = ((job && job.logs) || []).filter(line => String(line).trim());
   if (!logs.length) {
     terminal.innerHTML = '<div class="terminal-line is-meta">No output captured yet.</div>';
   } else {
