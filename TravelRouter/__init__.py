@@ -1,9 +1,11 @@
 import os
+from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
@@ -79,17 +81,26 @@ def _json_api_response(status_code: int, msg, success: bool) -> JSONResponse:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         return _json_api_response(exc.status_code, exc.detail, False)
 
-    @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
         return _json_api_response(422, exc.errors(), False)
 
-    @app.exception_handler(Exception)
     async def unexpected_exception_handler(_: Request, __: Exception) -> JSONResponse:
         return _json_api_response(500, "Internal server error", False)
+
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        job_manager.stop_all()
 
 
 def create_app() -> FastAPI:
@@ -98,6 +109,7 @@ def create_app() -> FastAPI:
         description=APP_DESCRIPTION,
         version=APP_VERSION,
         openapi_tags=OPENAPI_TAGS,
+        lifespan=lifespan,
     )
 
     auth_manager = AuthManager()
@@ -113,7 +125,6 @@ def create_app() -> FastAPI:
     app.include_router(tailscale_router)
     app.include_router(wifi_router)
     register_exception_handlers(app)
-    app.add_event_handler("shutdown", job_manager.stop_all)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
