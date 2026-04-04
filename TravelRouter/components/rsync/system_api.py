@@ -1,0 +1,197 @@
+import os
+import shlex
+import signal
+import subprocess
+import threading
+import time
+import uuid
+from collections import deque
+from datetime import datetime, timezone
+
+from TravelRouter.components.rsync.data_models import JobInfo, JobStatus, StartJobRequest
+
+
+class Job:
+    def __init__(self, job_id: str, req: StartJobRequest, on_update: threading.Event | None = None):
+        self.id          = job_id
+        self.label       = req.label
+        self.source      = req.source
+        self.destination = req.destination
+        self.retries     = req.retries
+        self.retry_delay = req.retry_delay
+        self.attempt     = 1
+        self.status      = JobStatus.RUNNING
+        self.started_at  = datetime.now(timezone.utc).isoformat()
+        self.ended_at:   str | None = None
+        self.exit_code:  int | None = None
+        self.pid:        int | None = None
+        self._proc:      subprocess.Popen | None = None
+        self._output:    deque[str] = deque(maxlen=2000)
+        self._lock       = threading.Lock()
+        self._on_update  = on_update   # global event shared across all jobs
+
+    def append(self, line: str) -> None:
+        with self._lock:
+            self._output.append(line)
+        if self._on_update is not None:
+            self._on_update.set()
+
+    def get_output(self) -> list[str]:
+        with self._lock:
+            return list(self._output)
+
+    def to_info(self) -> JobInfo:
+        return JobInfo(
+            id          = self.id,
+            label       = self.label,
+            source      = self.source,
+            destination = self.destination,
+            status      = self.status,
+            started_at  = self.started_at,
+            ended_at    = self.ended_at,
+            exit_code   = self.exit_code,
+            pid         = self.pid,
+            attempt     = self.attempt,
+            retries     = self.retries,
+        )
+
+
+class JobManager:
+    def __init__(self):
+        self._jobs:       dict[str, Job] = {}
+        self._lock        = threading.Lock()
+        self.any_update   = threading.Event()   # set whenever any job appends a line
+
+    @staticmethod
+    def _build_cmd(req: StartJobRequest) -> list[str]:
+        ssh = (
+            "ssh"
+            " -o Compression=no"
+            " -o ServerAliveInterval=5"
+            " -o ServerAliveCountMax=3"
+            " -o ConnectTimeout=15"
+            " -o TCPKeepAlive=yes"
+        )
+        if req.ssh_key:
+            ssh += f" -i {shlex.quote(req.ssh_key)}"
+
+        return [
+            "rsync", "-a",
+            "--info=progress2,name0,stats2",
+            "--outbuf=L",
+            "--no-inc-recursive",
+            "--partial-dir=.rsync-partial",
+            "--mkpath",
+            "--timeout=30",
+            "-e", ssh,
+            req.source,
+            req.destination,
+        ]
+
+    def start(self, req: StartJobRequest) -> Job:
+        job_id = str(uuid.uuid4())
+        job    = Job(job_id, req, on_update=self.any_update)
+        with self._lock:
+            self._jobs[job_id] = job
+        threading.Thread(
+            target=self._run,
+            args=(job, self._build_cmd(req)),
+            daemon=True,
+        ).start()
+        return job
+
+    def _run(self, job: Job, cmd: list[str]) -> None:
+        try:
+            while True:
+                # --- run one attempt ---
+                try:
+                    proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        preexec_fn=os.setsid,   # own process group → clean SIGTERM
+                    )
+                    job._proc = proc
+                    job.pid   = proc.pid
+
+                    for raw in proc.stdout:
+                        job.append(raw.rstrip())
+
+                    proc.wait()
+                    job.exit_code = proc.returncode
+
+                except Exception as exc:
+                    job.exit_code = None
+                    job.append(f"[error] {exc}")
+
+                # --- decide what to do next ---
+                if job.status == JobStatus.STOPPED:
+                    # user cancelled — honour it regardless of exit code
+                    break
+
+                if job.exit_code == 0:
+                    job.status = JobStatus.COMPLETED
+                    break
+
+                # failure path
+                if job.attempt <= job.retries:
+                    job.append(
+                        f"[retry] attempt {job.attempt} failed"
+                        f" (exit {job.exit_code}), "
+                        f"retrying in {job.retry_delay}s …"
+                    )
+                    job.status = JobStatus.WAITING
+                    if self.any_update:
+                        self.any_update.set()
+
+                    # sleep in small increments so a stop() call is noticed quickly
+                    deadline = time.monotonic() + job.retry_delay
+                    while time.monotonic() < deadline:
+                        if job.status == JobStatus.STOPPED:
+                            break
+                        time.sleep(1)
+
+                    if job.status == JobStatus.STOPPED:
+                        break
+
+                    job.attempt += 1
+                    job.status   = JobStatus.RUNNING
+                    continue
+
+                # no retries left
+                job.status = JobStatus.FAILED
+                break
+
+        finally:
+            job.ended_at = datetime.now(timezone.utc).isoformat()
+            if self.any_update:
+                self.any_update.set()
+
+    def stop(self, job_id: str) -> Job | None:
+        job = self._get(job_id)
+        if job is None or job.status not in (JobStatus.RUNNING, JobStatus.WAITING):
+            return None
+        job.status = JobStatus.STOPPED
+        if job._proc and job._proc.poll() is None:
+            try:
+                os.killpg(os.getpgid(job._proc.pid), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        return job
+
+    def get(self, job_id: str) -> Job | None:
+        return self._get(job_id)
+
+    def list_jobs(self) -> list[Job]:
+        with self._lock:
+            return list(self._jobs.values())
+
+    def _get(self, job_id: str) -> Job | None:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+
+# Module-level singleton — shared across all requests
+job_manager = JobManager()
