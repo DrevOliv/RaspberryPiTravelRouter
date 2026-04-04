@@ -8,7 +8,6 @@ from fastapi.responses import StreamingResponse
 from TravelRouter.helpers.api_response import ApiResponse
 
 from TravelRouter.components.rsync.data_models import StartJobRequest
-from TravelRouter.components.rsync.functions import parse_progress
 from TravelRouter.components.rsync.system_api import job_manager
 
 logger = logging.getLogger(__name__)
@@ -85,8 +84,9 @@ async def api_stream_all_jobs():
     # driven by the same 0.5 s timeout so we don't need a hook into job_manager.
 
     async def generator():
-        # lines already sent per job_id
-        sent: dict[str, int] = {}
+        # queue offsets already sent per job_id
+        sent_progress: dict[str, int] = {}
+        sent_logs: dict[str, int] = {}
         # jobs we have already emitted job_done for
         finished: set[str] = set()
 
@@ -99,31 +99,48 @@ async def api_stream_all_jobs():
 
                 for job in job_manager.list_jobs():
                     # First time we see this job — announce it
-                    if job.id not in sent:
-                        sent[job.id] = 0
+                    if job.id not in sent_logs:
+                        sent_progress[job.id] = 0
+                        sent_logs[job.id] = 0
                         yield (
                             f"event: job_start\n"
                             f"data: {json.dumps(job.to_info().model_dump())}\n\n"
                         )
 
-                    sent[job.id], new_lines = job.get_output_from(sent[job.id])
-                    for line in new_lines:
-                        progress = parse_progress(line)
-                        if progress:
-                            yield f"event: progress\ndata: {json.dumps({'job_id': job.id, **progress})}\n\n"
-                        else:
-                            yield f"event: line\ndata: {json.dumps({'job_id': job.id, 'text': line})}\n\n"
+                    sent_progress[job.id], progress_items = job.get_progress_from(
+                        sent_progress[job.id]
+                    )
+                    for progress in progress_items:
+                        yield (
+                            f"event: progress\n"
+                            f"data: {json.dumps({'job_id': job.id, **progress.model_dump()})}\n\n"
+                        )
+
+                    sent_logs[job.id], log_lines = job.get_log_from(sent_logs[job.id])
+                    for line in log_lines:
+                        yield (
+                            f"event: line\n"
+                            f"data: {json.dumps({'job_id': job.id, 'text': line})}\n\n"
+                        )
 
                     if job.id not in finished and job.status.value not in ("running", "waiting"):
-                        # Flush any lines that arrived between the last get_output_from
+                        # Flush any items that arrived between the last queue reads
                         # and the status check before declaring the job done.
-                        sent[job.id], trailing = job.get_output_from(sent[job.id])
-                        for line in trailing:
-                            progress = parse_progress(line)
-                            if progress:
-                                yield f"event: progress\ndata: {json.dumps({'job_id': job.id, **progress})}\n\n"
-                            else:
-                                yield f"event: line\ndata: {json.dumps({'job_id': job.id, 'text': line})}\n\n"
+                        sent_progress[job.id], trailing_progress = job.get_progress_from(
+                            sent_progress[job.id]
+                        )
+                        for progress in trailing_progress:
+                            yield (
+                                f"event: progress\n"
+                                f"data: {json.dumps({'job_id': job.id, **progress.model_dump()})}\n\n"
+                            )
+
+                        sent_logs[job.id], trailing_logs = job.get_log_from(sent_logs[job.id])
+                        for line in trailing_logs:
+                            yield (
+                                f"event: line\n"
+                                f"data: {json.dumps({'job_id': job.id, 'text': line})}\n\n"
+                            )
 
                         finished.add(job.id)
                         yield (

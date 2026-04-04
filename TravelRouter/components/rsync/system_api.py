@@ -8,7 +8,7 @@ import uuid
 from collections import deque
 from datetime import datetime, timezone
 
-from TravelRouter.components.rsync.data_models import JobInfo, JobStatus, StartJobRequest
+from TravelRouter.components.rsync.data_models import JobInfo, JobStatus, RsyncProgress, StartJobRequest
 from TravelRouter.components.rsync.functions import parse_progress
 
 
@@ -28,22 +28,35 @@ class Job:
         self.pid:        int | None = None
         self._proc:      subprocess.Popen | None = None
         self._stop_requested = threading.Event()
-        self._output:    deque[str] = deque(maxlen=2000)
-        self._output_offset = 0
-        self._log:       deque[str] = deque(maxlen=200)  # non-progress lines only
+        self._worker_thread: threading.Thread | None = None
+        self._progress:  RsyncProgress | None = None
+        self._progress_version = 0
+        self._log:       deque[str] = deque(maxlen=2000)
+        self._log_offset = 0
         self._lock       = threading.Lock()
         self._on_update  = on_update   # global event shared across all jobs
 
-    def append(self, line: str, important: bool = False) -> None:
+    def _append_with_offset(self, queue: deque, offset_attr: str, item) -> None:
+        if queue.maxlen and len(queue) == queue.maxlen:
+            setattr(self, offset_attr, getattr(self, offset_attr) + 1)
+        queue.append(item)
+
+    def append(self, line: str) -> None:
         if not line:
             return
 
+        progress = parse_progress(line)
         with self._lock:
-            if self._output.maxlen and len(self._output) == self._output.maxlen:
-                self._output_offset += 1
-            self._output.append(line)
-            if important:
-                self._log.append(line)
+            if progress:
+                self._progress = progress
+                self._progress_version += 1
+            else:
+                self._append_with_offset(
+                    self._log,
+                    "_log_offset",
+                    line,
+                )
+
         if self._on_update is not None:
             self._on_update.set()
 
@@ -51,18 +64,25 @@ class Job:
         with self._lock:
             return list(self._log)
 
-    def get_output(self) -> list[str]:
+    def get_log_from(self, offset: int) -> tuple[int, list[str]]:
         with self._lock:
-            return list(self._output)
+            if offset < self._log_offset:
+                offset = self._log_offset
 
-    def get_output_from(self, offset: int) -> tuple[int, list[str]]:
+            start_index = offset - self._log_offset
+            next_offset = self._log_offset + len(self._log)
+            return next_offset, list(self._log)[start_index:]
+
+    def get_progress(self) -> RsyncProgress | None:
         with self._lock:
-            if offset < self._output_offset:
-                offset = self._output_offset
+            return self._progress
 
-            start_index = offset - self._output_offset
-            next_offset = self._output_offset + len(self._output)
-            return next_offset, list(self._output)[start_index:]
+    def get_progress_from(self, offset: int) -> tuple[int, list[RsyncProgress]]:
+        with self._lock:
+            if offset >= self._progress_version or self._progress is None:
+                return self._progress_version, []
+
+            return self._progress_version, [self._progress]
 
     def to_info(self) -> JobInfo:
         return JobInfo(
@@ -141,11 +161,14 @@ class JobManager:
         job    = Job(job_id, req, on_update=self.any_update)
         with self._lock:
             self._jobs[job_id] = job
-        threading.Thread(
+
+        worker_thread = threading.Thread(
             target=self._run,
             args=(job, self._build_cmd(req)),
             daemon=True,
-        ).start()
+        )
+        job._worker_thread = worker_thread
+        worker_thread.start()
         return job
 
     def _run(self, job: Job, cmd: list[str]) -> None:
@@ -156,6 +179,11 @@ class JobManager:
 
                 # --- run one attempt ---
                 try:
+                    with job._lock:
+                        job.exit_code = None
+                        job._proc = None
+                        job.pid = None
+
                     proc = subprocess.Popen(
                         cmd,
                         stdout=subprocess.PIPE,
@@ -175,7 +203,9 @@ class JobManager:
 
                     if proc.stdout is None:
                         proc.wait()
-                        job.exit_code = proc.returncode
+                        with job._lock:
+                            job.exit_code = proc.returncode
+                            job._proc = None
                         continue
 
                     for raw in proc.stdout:
@@ -183,17 +213,21 @@ class JobManager:
                             self._terminate_process(proc)
                             break
 
-                        line = raw.rstrip()
-                        job.append(line, important=not parse_progress(line))
+                        job.append(raw.rstrip())
 
                     proc.stdout.close()
 
                     proc.wait()
-                    job.exit_code = proc.returncode
+                    with job._lock:
+                        job.exit_code = proc.returncode
+                        job._proc = None
 
                 except Exception as exc:
-                    job.exit_code = -1
-                    job.append(f"[error] {exc}", important=True)
+                    with job._lock:
+                        job.exit_code = -1
+                        job._proc = None
+                        job.pid = None
+                    job.append(f"[error] {exc}")
 
                 # --- decide what to do next ---
                 if job.status == JobStatus.STOPPED:
@@ -209,8 +243,7 @@ class JobManager:
                     job.append(
                         f"[retry] attempt {job.attempt} failed"
                         f" (exit {job.exit_code}), "
-                        f"retrying in {job.retry_delay}s …",
-                        important=True,
+                        f"retrying in {job.retry_delay}s …"
                     )
                     job.status = JobStatus.WAITING
                     if self.any_update:
@@ -228,6 +261,8 @@ class JobManager:
 
                     job.attempt += 1
                     job.status   = JobStatus.RUNNING
+                    job.exit_code = None
+                    job.pid = None
                     if self.any_update:
                         self.any_update.set()
                     continue
@@ -258,6 +293,19 @@ class JobManager:
         if self.any_update:
             self.any_update.set()
         return job
+
+    def stop_all(self, join_timeout: float = 5.0) -> list[Job]:
+        jobs = self.list_jobs()
+
+        for job in jobs:
+            self.stop(job.id)
+
+        for job in jobs:
+            worker_thread = job._worker_thread
+            if worker_thread and worker_thread.is_alive():
+                worker_thread.join(timeout=join_timeout)
+
+        return jobs
 
     def get(self, job_id: str) -> Job | None:
         return self._get(job_id)

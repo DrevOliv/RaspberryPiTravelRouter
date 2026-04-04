@@ -9,6 +9,7 @@ from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
 from TravelRouter.components.drive import router as drive_router
 from TravelRouter.components.rsync import router as rsync_router
+from TravelRouter.components.rsync.system_api import job_manager
 from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
@@ -112,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(tailscale_router)
     app.include_router(wifi_router)
     register_exception_handlers(app)
+    app.add_event_handler("shutdown", job_manager.stop_all)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 

@@ -20,6 +20,13 @@ class StartJobRequest(BaseModel):
     retry_delay: int        = Field(30,   ge=5, le=600, description="Seconds to wait between retries")
 
 
+class RsyncProgress(BaseModel):
+    bytes:   int
+    percent: int
+    speed:   str
+    eta:     str
+
+
 class JobInfo(BaseModel):
     id:          str
     label:       str | None

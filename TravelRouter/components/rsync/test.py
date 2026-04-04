@@ -13,7 +13,7 @@ from TravelRouter.components.rsync.system_api import JobManager
 
 SOURCE_DIR = Path("/home/server/workspace/Bilder")
 DEST_DIR = Path("server@192.168.0.53:TEST")
-STOP_AFTER_SECONDS = 30.0
+STOP_AFTER_SECONDS = 1000.0
 
 
 def main() -> None:
@@ -31,7 +31,8 @@ def main() -> None:
 
     print(f"started job: {job.id}")
 
-    output_offset = 0
+    progress_offset = 0
+    log_offset = 0
     stop_sent = False
     started_at = time.monotonic()
 
@@ -41,7 +42,16 @@ def main() -> None:
             print("job not found")
             return
 
-        output_offset, lines = job.get_output_from(output_offset)
+        progress_offset, progress_items = job.get_progress_from(progress_offset)
+        for progress in progress_items:
+            print(
+                f"progress: {progress.percent}% "
+                f"{progress.bytes} bytes "
+                f"{progress.speed} "
+                f"eta={progress.eta}"
+            )
+
+        log_offset, lines = job.get_log_from(log_offset)
         for line in lines:
             print(line)
 
