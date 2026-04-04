@@ -32,3 +32,4 @@ class JobInfo(BaseModel):
     pid:         int | None
     attempt:     int
     retries:     int
+    log_lines:   list[str] = []

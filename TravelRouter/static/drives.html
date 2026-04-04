@@ -29,6 +29,17 @@
 <div class="page">
   <div class="settings-stack">
 
+    <!-- Transfer Jobs -->
+    <div class="card" id="jobs-card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F4E6;</span> Transfer Jobs</div>
+        <span class="badge" id="jobs-badge">0</span>
+      </div>
+      <div id="jobs-body">
+        <div class="card-empty">No transfer jobs</div>
+      </div>
+    </div>
+
     <!-- Available drives -->
     <div class="card">
       <div class="card-head">
@@ -57,7 +68,6 @@
   </div>
 </div>
 
-<!-- Toast container -->
 <div id="toasts"></div>
 
 <!-- Bottom navigation (shown on mobile only) -->
@@ -94,6 +104,49 @@
       <button class="btn btn-primary btn-full" id="mount-confirm-btn">Mount</button>
       <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closeMountModal()">Cancel</button>
     </div>
+  </div>
+</div>
+
+<!-- Transfer modal -->
+<div class="modal-backdrop" id="transfer-modal" style="display:none;" onclick="closeTransferModal(event)">
+  <div class="modal modal-lg" onclick="event.stopPropagation()">
+    <h3>Start Transfer</h3>
+    <div class="field" style="margin-top:16px;">
+      <label for="transfer-name-input">Job Name</label>
+      <input type="text" id="transfer-name-input" placeholder="e.g. My Backup">
+    </div>
+    <div class="transfer-paths">
+      <div class="transfer-path-box">
+        <div class="tpb-label">From</div>
+        <div class="tpb-icon">&#x1F4C1;</div>
+        <div class="tpb-text" id="transfer-source-text">&#x2014;</div>
+      </div>
+      <div class="transfer-arrow">&#x2192;</div>
+      <div class="transfer-path-box">
+        <div class="tpb-label">To</div>
+        <div class="tpb-icon">&#x1F5A5;</div>
+        <div class="tpb-text" id="transfer-dest-text">&#x2014;</div>
+      </div>
+    </div>
+    <div id="transfer-no-dest" style="display:none;margin-top:12px;padding:10px 14px;background:var(--yellow-dim);border:1px solid var(--yellow);border-radius:var(--radius-sm);font-size:13px;color:var(--yellow);">
+      No backup destination configured.
+      <a href="/settings-page" style="color:var(--yellow);font-weight:600;margin-left:4px;">Set it in Settings &#x2192;</a>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px;">
+      <button class="btn btn-primary btn-full" id="transfer-start-btn" onclick="confirmTransfer()">Start Job</button>
+      <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closeTransferModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Log / error terminal modal -->
+<div class="modal-backdrop" id="log-modal" style="display:none;" onclick="closeLogModal(event)">
+  <div class="modal modal-wide" onclick="event.stopPropagation()" style="padding:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <h3 id="log-modal-title" style="font-size:16px;">Job Logs</h3>
+      <button class="btn btn-sm btn-ghost" onclick="closeLogModal()">Close</button>
+    </div>
+    <div class="terminal" id="log-terminal"></div>
   </div>
 </div>
 
@@ -139,12 +192,11 @@ function toast(msg, type = 'info') {
   }, 3500);
 }
 
-// ─── State ──────────────────────────────────────────────────────────────────
+// ─── Drive state ─────────────────────────────────────────────────────────────
 
-// Each entry: { label, mount_point, pathParts: [], dirs: [], loading: bool }
 let mountedDrives = [];
-let pollTimer  = null;
-let pollBusy   = false;
+let pollTimer   = null;
+let pollBusy    = false;
 let healthTimer = null;
 
 function saveMountedDrives() {
@@ -163,30 +215,372 @@ function loadMountedDrivesFromSession() {
   } catch {}
 }
 
-// ─── Load server-side mounted drives (needs /drive/mounted_drives endpoint) ──
-// Silently merges any server-known mounts with locally tracked ones.
-// Works automatically once the backend endpoint is added.
+// ─── Folder selection state ───────────────────────────────────────────────────
 
-async function fetchServerMounts() {
-  const r = await api('GET', '/drive/mounted_drives');
-  if (!r || !r.success || !r.msg || !r.msg.drives) return;
+// { driveIdx, name, fullPath } or null
+let selectedFolder = null;
 
-  let changed = false;
-  r.msg.drives.forEach(d => {
-    if (!mountedDrives.find(md => md.mount_point === d.mount_point)) {
-      mountedDrives.push({ label: d.label, mount_point: d.mount_point, pathParts: [], dirs: [], loading: false });
-      changed = true;
+function selectFolder(driveIdx, dir, drive) {
+  const fullPath = drive.mount_point + '/'
+    + (drive.pathParts.length ? drive.pathParts.join('/') + '/' : '')
+    + dir.name;
+
+  if (selectedFolder && selectedFolder.driveIdx === driveIdx && selectedFolder.name === dir.name) {
+    selectedFolder = null; // toggle off
+  } else {
+    selectedFolder = { driveIdx, name: dir.name, fullPath };
+  }
+  updateSelectionUI();
+}
+
+function updateSelectionUI() {
+  mountedDrives.forEach((_, idx) => {
+    const browser = document.getElementById(`browser-${idx}`);
+    if (browser) {
+      browser.querySelectorAll('.folder-row').forEach(row => {
+        const isSelected = selectedFolder
+          && selectedFolder.driveIdx === idx
+          && selectedFolder.name === row.dataset.folderName;
+        row.classList.toggle('selected', isSelected);
+      });
+    }
+
+    const toolbar = document.getElementById(`transfer-toolbar-${idx}`);
+    if (!toolbar) return;
+    if (selectedFolder && selectedFolder.driveIdx === idx) {
+      toolbar.style.display = 'flex';
+      const nameEl = toolbar.querySelector('.toolbar-sel-name');
+      if (nameEl) nameEl.textContent = selectedFolder.name;
+    } else {
+      toolbar.style.display = 'none';
     }
   });
+}
 
-  if (changed) {
-    saveMountedDrives();
-    renderMounted();
-    mountedDrives.forEach((drive, idx) => { if (!drive.dirs.length) void loadFolders(drive, idx); });
+// ─── Rsync config cache ───────────────────────────────────────────────────────
+
+let rsyncConfig = { rsync_host: '', rsync_destination: '' };
+
+async function loadRsyncConfig() {
+  const r = await api('GET', '/settings/config');
+  if (r && r.success && r.msg) {
+    rsyncConfig.rsync_host        = r.msg.rsync_host        || '';
+    rsyncConfig.rsync_destination = r.msg.rsync_destination || '';
   }
 }
 
-// ─── Available drives polling ────────────────────────────────────────────────
+// ─── Job state ────────────────────────────────────────────────────────────────
+
+// Map<jobId, { id, label, source, destination, status, exit_code, started_at, logs[], progress }>
+// logs[] contains the non-progress lines sent by the server (log_lines in job_start),
+// plus any new line events received during this session.
+const rsyncJobs = new Map();
+
+// ─── SSE connection ───────────────────────────────────────────────────────────
+
+let sseSource     = null;
+let sseRetryTimer = null;
+
+function initSSE() {
+  if (sseSource) { sseSource.close(); sseSource = null; }
+  if (sseRetryTimer) { clearTimeout(sseRetryTimer); sseRetryTimer = null; }
+
+  sseSource = new EventSource('/rsync/stream', { withCredentials: true });
+
+  sseSource.addEventListener('job_start', e => {
+    const info = JSON.parse(e.data);
+    if (rsyncJobs.has(info.id)) {
+      // Server is replaying a known job — refresh its fields and merge any
+      // new log_lines the server has accumulated since we last saw it.
+      const job = rsyncJobs.get(info.id);
+      const existingCount = job.logs.length;
+      const serverLogs    = info.log_lines || [];
+      // Append server lines we haven't seen yet (server keeps the authoritative list)
+      if (serverLogs.length > existingCount) {
+        job.logs = serverLogs;
+      }
+      Object.assign(job, {
+        label:       info.label || job.label,
+        source:      info.source,
+        destination: info.destination,
+        status:      info.status,
+        exit_code:   info.exit_code,
+        started_at:  info.started_at,
+      });
+    } else {
+      rsyncJobs.set(info.id, {
+        ...info,
+        logs:     info.log_lines || [],
+        progress: null,
+      });
+    }
+    renderJobs();
+  });
+
+  sseSource.addEventListener('progress', e => {
+    const data = JSON.parse(e.data);
+    const job  = rsyncJobs.get(data.job_id);
+    if (!job) return;
+    job.progress = data;
+    updateJobProgress(data.job_id, data);
+  });
+
+  sseSource.addEventListener('line', e => {
+    // line events carry non-progress text lines as they arrive live
+    const data = JSON.parse(e.data);
+    const job  = rsyncJobs.get(data.job_id);
+    if (!job) return;
+    job.logs.push(data.text);
+    appendToOpenLog(data.job_id, data.text);
+  });
+
+  sseSource.addEventListener('job_done', e => {
+    const data = JSON.parse(e.data);
+    const job  = rsyncJobs.get(data.job_id);
+    if (!job) return;
+    job.status    = data.status;
+    job.exit_code = data.exit_code;
+    job.progress  = null;
+    renderJobs();
+  });
+
+  sseSource.addEventListener('error', e => {
+    const data = JSON.parse(e.data || '{}');
+    console.warn('SSE stream error:', data.detail);
+  });
+
+  sseSource.onerror = () => {
+    // EventSource auto-reconnects, but we also schedule a manual retry
+    // to guard against cases where the browser gives up.
+    if (sseRetryTimer) return;
+    sseRetryTimer = setTimeout(() => {
+      sseRetryTimer = null;
+      if (!sseSource || sseSource.readyState === EventSource.CLOSED) initSSE();
+    }, 5000);
+  };
+}
+
+// ─── Job rendering ────────────────────────────────────────────────────────────
+
+function renderJobs() {
+  const body  = document.getElementById('jobs-body');
+  const badge = document.getElementById('jobs-badge');
+  if (!body) return;
+
+  const jobs = [...rsyncJobs.values()].sort((a, b) =>
+    (b.started_at || '').localeCompare(a.started_at || ''));
+
+  badge.textContent = jobs.length;
+
+  if (!jobs.length) {
+    body.innerHTML = '<div class="card-empty">No transfer jobs</div>';
+    return;
+  }
+
+  body.innerHTML = '';
+  jobs.forEach(job => body.appendChild(buildJobCard(job)));
+}
+
+function buildJobCard(job) {
+  const card = document.createElement('div');
+  card.className = 'job-card';
+  card.id = `job-card-${job.id}`;
+
+  const statusLabel = {
+    running:   '&#x25CF; Running',
+    waiting:   '&#x27F3; Waiting',
+    completed: '&#x2713; Done',
+    failed:    '&#x2717; Failed',
+    stopped:   '&#x25A0; Stopped',
+  }[job.status] || job.status;
+
+  const canStop = job.status === 'running' || job.status === 'waiting';
+  const hasError = job.status === 'failed' || (job.exit_code !== null && job.exit_code !== 0);
+  const hasLogs = job.logs && job.logs.length > 0;
+
+  const srcShort = job.source
+    ? job.source.replace(/\/$/, '').split('/').pop() || job.source
+    : '';
+
+  const logsBtn = hasLogs
+    ? `<button class="btn btn-sm ${hasError ? 'btn-danger' : 'btn-ghost'}"
+         onclick="openLogModal('${job.id}')" title="View job logs">
+         ${hasError ? '&#x26A0; Errors' : '&#x1F4CB; Logs'}
+       </button>`
+    : '';
+
+  const stopBtn = canStop
+    ? `<button class="btn btn-sm btn-ghost" onclick="stopJob('${job.id}')" title="Stop job">&#x25A0;</button>`
+    : '';
+
+  card.innerHTML = `
+    <div class="job-card-head">
+      <div class="job-icon">&#x1F4E6;</div>
+      <div class="job-info">
+        <div class="job-name">${esc(job.label || job.id)}</div>
+        <div class="job-path">${esc(srcShort)} &#x2192; ${esc(job.destination || '')}</div>
+      </div>
+      <div class="job-actions">
+        ${logsBtn}
+        ${stopBtn}
+        <span class="job-status-badge ${job.status}">${statusLabel}</span>
+      </div>
+    </div>
+    <div class="job-progress" id="job-progress-${job.id}" style="display:${job.progress && job.status === 'running' ? 'block' : 'none'}">
+      <div class="progress-bar">
+        <div class="progress-fill" id="job-fill-${job.id}" style="width:${job.progress ? job.progress.percent : 0}%"></div>
+      </div>
+      <div class="job-progress-meta">
+        <span id="job-pct-${job.id}">${job.progress ? job.progress.percent : 0}%</span>
+        <span id="job-spd-${job.id}">${job.progress ? esc(job.progress.speed) : ''}</span>
+        <span id="job-eta-${job.id}">${job.progress ? 'ETA ' + esc(job.progress.eta) : ''}</span>
+      </div>
+    </div>`;
+
+  return card;
+}
+
+function updateJobProgress(jobId, progress) {
+  const fill = document.getElementById(`job-fill-${jobId}`);
+  const pct  = document.getElementById(`job-pct-${jobId}`);
+  const spd  = document.getElementById(`job-spd-${jobId}`);
+  const eta  = document.getElementById(`job-eta-${jobId}`);
+  const bar  = document.getElementById(`job-progress-${jobId}`);
+
+  if (!fill) {
+    // Card not rendered yet — full re-render
+    renderJobs();
+    return;
+  }
+
+  if (bar) bar.style.display = 'block';
+  fill.style.width = `${progress.percent}%`;
+  if (pct) pct.textContent = `${progress.percent}%`;
+  if (spd) spd.textContent = progress.speed;
+  if (eta) eta.textContent = `ETA ${progress.eta}`;
+}
+
+// ─── Stop job ─────────────────────────────────────────────────────────────────
+
+async function stopJob(jobId) {
+  const r = await api('DELETE', `/rsync/jobs/${jobId}`);
+  if (r && r.success) {
+    toast('Job stopped', 'info');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Could not stop job', 'error');
+  }
+}
+
+// ─── Log modal ────────────────────────────────────────────────────────────────
+
+let openLogJobId = null;
+
+function openLogModal(jobId) {
+  openLogJobId = jobId;
+  const job      = rsyncJobs.get(jobId);
+  const title    = document.getElementById('log-modal-title');
+  const terminal = document.getElementById('log-terminal');
+
+  if (title) title.textContent = `Logs\u2009\u2014\u2009${job ? (job.label || jobId) : jobId}`;
+  if (!terminal) return;
+
+  terminal.innerHTML = '';
+  const logs = (job && job.logs) || [];
+  if (!logs.length) {
+    terminal.innerHTML = '<div class="terminal-line is-meta">No output captured yet.</div>';
+  } else {
+    logs.forEach(line => terminal.appendChild(makeTerminalLine(line)));
+    terminal.scrollTop = terminal.scrollHeight;
+  }
+
+  document.getElementById('log-modal').style.display = 'flex';
+}
+
+function makeTerminalLine(line) {
+  const div = document.createElement('div');
+  div.className = 'terminal-line';
+  if (/error|failed|rsync:/i.test(line)) div.classList.add('is-error');
+  else if (/warning|warn/i.test(line))   div.classList.add('is-warn');
+  else if (/^\[/.test(line))             div.classList.add('is-meta');
+  div.textContent = line;
+  return div;
+}
+
+function appendToOpenLog(jobId, line) {
+  if (openLogJobId !== jobId) return;
+  const terminal = document.getElementById('log-terminal');
+  if (!terminal) return;
+  const atBottom = terminal.scrollHeight - terminal.scrollTop - terminal.clientHeight < 40;
+  terminal.appendChild(makeTerminalLine(line));
+  if (atBottom) terminal.scrollTop = terminal.scrollHeight;
+}
+
+function closeLogModal(e) {
+  if (!e || e.target === document.getElementById('log-modal')) {
+    openLogJobId = null;
+    document.getElementById('log-modal').style.display = 'none';
+  }
+}
+
+// ─── Transfer modal ───────────────────────────────────────────────────────────
+
+let pendingTransfer = null;
+
+function openTransferModal() {
+  if (!selectedFolder) return;
+  const drive = mountedDrives[selectedFolder.driveIdx];
+  if (!drive) return;
+
+  const sourceFullPath = drive.mount_point + '/'
+    + (drive.pathParts.length ? drive.pathParts.join('/') + '/' : '')
+    + selectedFolder.name + '/';
+
+  pendingTransfer = { source: sourceFullPath, name: selectedFolder.name };
+
+  document.getElementById('transfer-name-input').value = selectedFolder.name;
+  document.getElementById('transfer-source-text').textContent = sourceFullPath;
+
+  const hasDestination = rsyncConfig.rsync_host && rsyncConfig.rsync_destination;
+  document.getElementById('transfer-dest-text').textContent = hasDestination
+    ? `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`
+    : 'Not configured \u2014 set in Settings';
+  document.getElementById('transfer-no-dest').style.display = hasDestination ? 'none' : 'block';
+  document.getElementById('transfer-start-btn').disabled = !hasDestination;
+
+  document.getElementById('transfer-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('transfer-name-input').focus(), 80);
+}
+
+function closeTransferModal(e) {
+  if (!e || e.target === document.getElementById('transfer-modal')) {
+    document.getElementById('transfer-modal').style.display = 'none';
+    pendingTransfer = null;
+  }
+}
+
+async function confirmTransfer() {
+  if (!pendingTransfer) return;
+  const jobName    = document.getElementById('transfer-name-input').value.trim() || pendingTransfer.name;
+  const destination = `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`;
+
+  closeTransferModal();
+
+  const r = await api('POST', '/rsync/jobs', {
+    source:      pendingTransfer.source,
+    destination,
+    label:       jobName,
+    retries:     2,
+    retry_delay: 30,
+  });
+
+  if (r && r.success) {
+    toast(`Job \u201c${jobName}\u201d started`, 'success');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to start job', 'error');
+  }
+}
+
+// ─── Available drives polling ─────────────────────────────────────────────────
 
 async function pollAvailable() {
   if (pollBusy) return;
@@ -213,7 +607,6 @@ function renderAvailable(devices) {
   devices.forEach(dev => {
     const item = document.createElement('div');
     item.className = 'drive-item';
-
     const labelText = dev.label ? `${dev.label} \u00b7 ` : '';
     item.innerHTML = `
       <div class="drive-icon">&#x1F4BE;</div>
@@ -224,19 +617,19 @@ function renderAvailable(devices) {
       <div class="drive-actions">
         <button class="btn btn-sm btn-primary">Mount</button>
       </div>`;
-
     item.querySelector('.btn').addEventListener('click', () => openMountModal(dev));
     body.appendChild(item);
   });
 }
 
-// ─── Mount modal ─────────────────────────────────────────────────────────────
+// ─── Mount modal ──────────────────────────────────────────────────────────────
 
 let pendingMountDev = null;
 
 function openMountModal(dev) {
   pendingMountDev = dev;
-  document.getElementById('mount-modal-sub').textContent = `${dev.device} \u00b7 ${dev.size} \u00b7 ${dev.fstype}`;
+  document.getElementById('mount-modal-sub').textContent =
+    `${dev.device} \u00b7 ${dev.size} \u00b7 ${dev.fstype}`;
   const labelInput = document.getElementById('mount-label-input');
   labelInput.value = dev.label || dev.name || '';
   document.getElementById('mount-confirm-btn').onclick = confirmMount;
@@ -277,7 +670,26 @@ async function confirmMount() {
   }
 }
 
-// ─── Mounted drives ──────────────────────────────────────────────────────────
+// ─── Mounted drives ───────────────────────────────────────────────────────────
+
+async function fetchServerMounts() {
+  const r = await api('GET', '/drive/mounted_drives');
+  if (!r || !r.success || !r.msg || !r.msg.drives) return;
+
+  let changed = false;
+  r.msg.drives.forEach(d => {
+    if (!mountedDrives.find(md => md.mount_point === d.mount_point)) {
+      mountedDrives.push({ label: d.label, mount_point: d.mount_point, pathParts: [], dirs: [], loading: false });
+      changed = true;
+    }
+  });
+
+  if (changed) {
+    saveMountedDrives();
+    renderMounted();
+    mountedDrives.forEach((drive, idx) => { if (!drive.dirs.length) void loadFolders(drive, idx); });
+  }
+}
 
 function renderMounted() {
   const body  = document.getElementById('mounted-body');
@@ -306,7 +718,6 @@ function renderMounted() {
       <div class="drive-actions">
         <button class="btn btn-sm btn-danger unmount-btn">Unmount</button>
       </div>`;
-
     head.querySelector('.unmount-btn').addEventListener('click', () => unmountDrive(idx));
     section.appendChild(head);
 
@@ -314,12 +725,34 @@ function renderMounted() {
     browser.className = 'folder-browser';
     browser.id = `browser-${idx}`;
     browser.appendChild(buildBreadcrumb(drive, idx));
+    browser.appendChild(buildTransferToolbar(idx));
     browser.appendChild(buildFolderList(drive, idx));
     section.appendChild(browser);
 
     body.appendChild(section);
   });
 }
+
+// ─── Transfer toolbar ─────────────────────────────────────────────────────────
+
+function buildTransferToolbar(idx) {
+  const toolbar = document.createElement('div');
+  toolbar.className = 'transfer-toolbar';
+  toolbar.id = `transfer-toolbar-${idx}`;
+
+  const isSelected = selectedFolder && selectedFolder.driveIdx === idx;
+  toolbar.style.display = isSelected ? 'flex' : 'none';
+
+  toolbar.innerHTML = `
+    <span style="font-size:15px;">&#x1F4C1;</span>
+    <span class="toolbar-sel-name">${isSelected ? esc(selectedFolder.name) : ''}</span>
+    <span style="flex:1;"></span>
+    <button class="btn btn-sm btn-primary" onclick="openTransferModal()">Start Transfer &#x203A;</button>`;
+
+  return toolbar;
+}
+
+// ─── Folder browser ───────────────────────────────────────────────────────────
 
 function buildBreadcrumb(drive, idx) {
   const bar = document.createElement('div');
@@ -337,8 +770,8 @@ function buildBreadcrumb(drive, idx) {
     sep.textContent = '/';
     bar.appendChild(sep);
 
-    const seg      = document.createElement('span');
-    const isLast   = i === drive.pathParts.length - 1;
+    const seg    = document.createElement('span');
+    const isLast = i === drive.pathParts.length - 1;
     seg.className  = isLast ? 'breadcrumb-current' : 'breadcrumb-seg';
     seg.textContent = part;
     if (!isLast) seg.addEventListener('click', () => navigateTo(idx, drive.pathParts.slice(0, i + 1)));
@@ -368,11 +801,22 @@ function buildFolderList(drive, idx) {
   drive.dirs.forEach(dir => {
     const row = document.createElement('div');
     row.className = 'folder-row';
+    row.dataset.folderName = dir.name;
+
+    // Restore selected state
+    if (selectedFolder && selectedFolder.driveIdx === idx && selectedFolder.name === dir.name) {
+      row.classList.add('selected');
+    }
+
     row.innerHTML = `
       <span class="folder-row-icon">&#x1F4C1;</span>
       <span class="folder-row-name">${esc(dir.name)}</span>
       <span style="font-size:12px;color:var(--text-sub);">&#x276F;</span>`;
-    row.addEventListener('click', () => navigateTo(idx, [...drive.pathParts, dir.name]));
+
+    // Single click = select/deselect; double click = navigate into
+    row.addEventListener('click', () => selectFolder(idx, dir, drive));
+    row.addEventListener('dblclick', () => navigateTo(idx, [...drive.pathParts, dir.name]));
+
     list.appendChild(row);
   });
 
@@ -380,6 +824,10 @@ function buildFolderList(drive, idx) {
 }
 
 async function navigateTo(idx, pathParts) {
+  // Clear selection when drilling into a different directory
+  if (selectedFolder && selectedFolder.driveIdx === idx) {
+    selectedFolder = null;
+  }
   const drive = mountedDrives[idx];
   if (!drive) return;
   drive.pathParts = pathParts;
@@ -394,7 +842,10 @@ async function loadFolders(drive, idx) {
   drive.loading = true;
   refreshBrowser(idx);
 
-  const r = await api('POST', '/drive/folders', { mount_point: drive.mount_point, sub_path: drive.pathParts.join('/') });
+  const r = await api('POST', '/drive/folders', {
+    mount_point: drive.mount_point,
+    sub_path:    drive.pathParts.join('/'),
+  });
 
   drive.loading = false;
 
@@ -414,12 +865,19 @@ function refreshBrowser(idx) {
   if (!browser || !drive) return;
   browser.innerHTML = '';
   browser.appendChild(buildBreadcrumb(drive, idx));
+  browser.appendChild(buildTransferToolbar(idx));
   browser.appendChild(buildFolderList(drive, idx));
 }
 
 async function unmountDrive(idx) {
   const drive   = mountedDrives[idx];
   if (!drive) return;
+
+  // Clear selection if it belongs to this drive
+  if (selectedFolder && selectedFolder.driveIdx === idx) {
+    selectedFolder = null;
+  }
+
   const section = document.getElementById(`mounted-drive-${idx}`);
   const btn     = section && section.querySelector('.unmount-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
@@ -456,16 +914,17 @@ async function checkHealth() {
   }
 }
 
-// ─── Auth / logout ───────────────────────────────────────────────────────────
+// ─── Auth / logout ────────────────────────────────────────────────────────────
 
 document.getElementById('logout-btn').addEventListener('click', async () => {
   if (pollTimer)   { clearInterval(pollTimer);   pollTimer   = null; }
   if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  if (sseSource)   { sseSource.close();          sseSource   = null; }
   await api('POST', '/api/auth/logout');
   window.location.href = '/login';
 });
 
-// ─── Init ────────────────────────────────────────────────────────────────────
+// ─── Init ─────────────────────────────────────────────────────────────────────
 
 loadMountedDrivesFromSession();
 renderMounted();
@@ -474,13 +933,16 @@ mountedDrives.forEach((drive, idx) => void loadFolders(drive, idx));
 void fetchServerMounts();
 void pollAvailable();
 void checkHealth();
+void loadRsyncConfig();
+initSSE();
 
 pollTimer   = setInterval(() => { void pollAvailable(); }, 5000);
-healthTimer = setInterval(() => { void checkHealth(); },   5000);
+healthTimer = setInterval(() => { void checkHealth();   }, 5000);
 
 window.addEventListener('pagehide', () => {
   if (pollTimer)   { clearInterval(pollTimer);   pollTimer   = null; }
   if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
+  if (sseSource)   { sseSource.close();          sseSource   = null; }
 });
 </script>
 </body>

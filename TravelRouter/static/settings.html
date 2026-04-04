@@ -81,6 +81,34 @@
       </div>
     </div>
 
+    <!-- ── Backup Destination ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F504;</span> Backup Destination</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Remote Target</div>
+        <div class="form-gap">
+          <p class="hint">Set the remote server and directory where files will be transferred via rsync over SSH. SSH key authentication must be configured on this device.</p>
+          <div class="field-row">
+            <div class="field">
+              <label for="rsync-host">Remote Host</label>
+              <input type="text" id="rsync-host" placeholder="e.g. user@homeserver" autocomplete="off">
+            </div>
+            <div class="field">
+              <label for="rsync-dest">Destination Path</label>
+              <input type="text" id="rsync-dest" placeholder="e.g. /backup/" autocomplete="off">
+            </div>
+          </div>
+          <p class="hint">The directory will be verified over SSH before saving. A job cannot be started without a valid destination.</p>
+          <div>
+            <button class="btn btn-primary" id="save-rsync-btn" onclick="saveRsyncDestination()">Verify &amp; Save</button>
+          </div>
+          <div id="rsync-status"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Password ── -->
     <div class="card">
       <div class="card-head">
@@ -360,6 +388,30 @@ async function saveExitNode() {
   toast(msg, ok ? 'success' : 'error');
 }
 
+// ─── Save Rsync Destination ──────────────────────────────────────────────────
+
+async function saveRsyncDestination() {
+  const host = document.getElementById('rsync-host').value.trim();
+  const dest = document.getElementById('rsync-dest').value.trim();
+
+  if (!host || !dest) {
+    setStatus('rsync-status', 'Both host and destination path are required.', false);
+    return;
+  }
+
+  setBusy('save-rsync-btn', true, 'Verify &amp; Save');
+  const r = await api('POST', '/settings/rsync/destination', { rsync_host: host, rsync_destination: dest });
+  setBusy('save-rsync-btn', false, 'Verify &amp; Save');
+
+  const ok  = r && r.success;
+  const msg = ok
+    ? 'Destination verified and saved'
+    : ((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to save destination');
+
+  setStatus('rsync-status', msg, ok);
+  toast(msg, ok ? 'success' : 'error');
+}
+
 // ─── Change Password ─────────────────────────────────────────────────────────
 
 async function changePassword() {
@@ -425,6 +477,9 @@ async function loadCurrentSettings() {
   if (s.ap_password) {
     document.getElementById('ap-pw').placeholder = `Current: ${'•'.repeat(s.ap_password.length)}`;
   }
+
+  if (s.rsync_host)        document.getElementById('rsync-host').value = s.rsync_host;
+  if (s.rsync_destination) document.getElementById('rsync-dest').value = s.rsync_destination;
 }
 
 // ─── Health check ────────────────────────────────────────────────────────────

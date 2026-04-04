@@ -9,6 +9,7 @@ from collections import deque
 from datetime import datetime, timezone
 
 from TravelRouter.components.rsync.data_models import JobInfo, JobStatus, StartJobRequest
+from TravelRouter.components.rsync.functions import parse_progress
 
 
 class Job:
@@ -28,16 +29,23 @@ class Job:
         self._proc:      subprocess.Popen | None = None
         self._output:    deque[str] = deque(maxlen=2000)
         self._output_offset = 0
+        self._log:       deque[str] = deque(maxlen=200)  # non-progress lines only
         self._lock       = threading.Lock()
         self._on_update  = on_update   # global event shared across all jobs
 
-    def append(self, line: str) -> None:
+    def append(self, line: str, important: bool = False) -> None:
         with self._lock:
             if self._output.maxlen and len(self._output) == self._output.maxlen:
                 self._output_offset += 1
             self._output.append(line)
+            if important:
+                self._log.append(line)
         if self._on_update is not None:
             self._on_update.set()
+
+    def get_log(self) -> list[str]:
+        with self._lock:
+            return list(self._log)
 
     def get_output(self) -> list[str]:
         with self._lock:
@@ -65,6 +73,7 @@ class Job:
             pid         = self.pid,
             attempt     = self.attempt,
             retries     = self.retries,
+            log_lines   = self.get_log(),
         )
 
 
@@ -129,7 +138,8 @@ class JobManager:
                     job.pid   = proc.pid
 
                     for raw in proc.stdout:
-                        job.append(raw.rstrip())
+                        line = raw.rstrip()
+                        job.append(line, important=not parse_progress(line))
                     proc.stdout.close()
 
                     proc.wait()
@@ -137,7 +147,7 @@ class JobManager:
 
                 except Exception as exc:
                     job.exit_code = -1
-                    job.append(f"[error] {exc}")
+                    job.append(f"[error] {exc}", important=True)
 
                 # --- decide what to do next ---
                 if job.status == JobStatus.STOPPED:
@@ -153,7 +163,8 @@ class JobManager:
                     job.append(
                         f"[retry] attempt {job.attempt} failed"
                         f" (exit {job.exit_code}), "
-                        f"retrying in {job.retry_delay}s …"
+                        f"retrying in {job.retry_delay}s …",
+                        important=True,
                     )
                     job.status = JobStatus.WAITING
                     if self.any_update:

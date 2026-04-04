@@ -18,7 +18,14 @@ class WifiData(BaseModel):
 class TailscaleData(BaseModel):
     exit_node: str = ""
 
+
+class RsyncData(BaseModel):
+    rsync_host: str = ""         # e.g. "user@hostname"
+    rsync_destination: str = ""  # e.g. "/backup/"
+
+
 class DataModels(BaseModel):
     auth: AuthData = Field(default_factory=AuthData)
     wifi: WifiData = Field(default_factory=WifiData)
     tailscale: TailscaleData = Field(default_factory=TailscaleData)
+    rsync: RsyncData = Field(default_factory=RsyncData)
