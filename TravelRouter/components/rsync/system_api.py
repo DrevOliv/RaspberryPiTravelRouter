@@ -27,11 +27,14 @@ class Job:
         self.pid:        int | None = None
         self._proc:      subprocess.Popen | None = None
         self._output:    deque[str] = deque(maxlen=2000)
+        self._output_offset = 0
         self._lock       = threading.Lock()
         self._on_update  = on_update   # global event shared across all jobs
 
     def append(self, line: str) -> None:
         with self._lock:
+            if self._output.maxlen and len(self._output) == self._output.maxlen:
+                self._output_offset += 1
             self._output.append(line)
         if self._on_update is not None:
             self._on_update.set()
@@ -39,6 +42,15 @@ class Job:
     def get_output(self) -> list[str]:
         with self._lock:
             return list(self._output)
+
+    def get_output_from(self, offset: int) -> tuple[int, list[str]]:
+        with self._lock:
+            if offset < self._output_offset:
+                offset = self._output_offset
+
+            start_index = offset - self._output_offset
+            next_offset = self._output_offset + len(self._output)
+            return next_offset, list(self._output)[start_index:]
 
     def to_info(self) -> JobInfo:
         return JobInfo(
@@ -111,19 +123,20 @@ class JobManager:
                         stderr=subprocess.STDOUT,
                         text=True,
                         bufsize=1,
-                        preexec_fn=os.setsid,   # own process group → clean SIGTERM
+                        start_new_session=True,
                     )
                     job._proc = proc
                     job.pid   = proc.pid
 
                     for raw in proc.stdout:
                         job.append(raw.rstrip())
+                    proc.stdout.close()
 
                     proc.wait()
                     job.exit_code = proc.returncode
 
                 except Exception as exc:
-                    job.exit_code = None
+                    job.exit_code = -1
                     job.append(f"[error] {exc}")
 
                 # --- decide what to do next ---
@@ -158,6 +171,8 @@ class JobManager:
 
                     job.attempt += 1
                     job.status   = JobStatus.RUNNING
+                    if self.any_update:
+                        self.any_update.set()
                     continue
 
                 # no retries left
@@ -171,14 +186,29 @@ class JobManager:
 
     def stop(self, job_id: str) -> Job | None:
         job = self._get(job_id)
-        if job is None or job.status not in (JobStatus.RUNNING, JobStatus.WAITING):
+        if job is None:
             return None
-        job.status = JobStatus.STOPPED
-        if job._proc and job._proc.poll() is None:
+        with job._lock:
+            if job.status not in (JobStatus.RUNNING, JobStatus.WAITING):
+                return None
+            job.status = JobStatus.STOPPED
+        proc = job._proc
+        if proc and proc.poll() is None:
             try:
-                os.killpg(os.getpgid(job._proc.pid), signal.SIGTERM)
+                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
             except ProcessLookupError:
                 pass
+            else:
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    proc.wait()
+        if self.any_update:
+            self.any_update.set()
         return job
 
     def get(self, job_id: str) -> Job | None:
