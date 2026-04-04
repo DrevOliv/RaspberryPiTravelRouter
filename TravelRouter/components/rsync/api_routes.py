@@ -137,16 +137,10 @@ async def api_stream_all_jobs():
                 logger.exception("Error in SSE generator")
                 yield f"event: error\ndata: {json.dumps({'detail': 'internal stream error'})}\n\n"
 
-            # Wait until any job produces output or 0.5 s elapses.
-            # Using asyncio.wait_for on asyncio.to_thread so that client
-            # disconnects (generator cancellation) propagate cleanly.
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(job_manager.any_update.wait, 0.5),
-                    timeout=1.0,
-                )
-            except (asyncio.TimeoutError, Exception):
-                pass
+            # Pure asyncio sleep — cancelled immediately on client disconnect
+            # or server shutdown, unlike asyncio.to_thread which leaves a
+            # background thread alive until its timeout expires.
+            await asyncio.sleep(0.5)
 
     return StreamingResponse(
         generator(),
