@@ -950,9 +950,9 @@ select {
 }
 .folder-row.selected:hover { background: var(--accent-dim); }
 
-/* ── Transfer toolbar (shown inside folder-browser when a folder is selected) ── */
+/* ── Transfer toolbar (always visible inside folder-browser) ── */
 .transfer-toolbar {
-  display: none;
+  display: flex;
   align-items: center;
   gap: 10px;
   padding: 9px 16px;
@@ -961,6 +961,11 @@ select {
   font-size: 13px;
   color: var(--text);
   flex-wrap: wrap;
+}
+.transfer-toolbar.inactive {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text-sub);
 }
 
 .toolbar-sel-name {

@@ -1,3 +1,4 @@
+import logging
 import os
 import shlex
 import signal
@@ -10,6 +11,18 @@ from datetime import datetime, timezone
 
 from TravelRouter.components.rsync.data_models import JobInfo, JobStatus, RsyncProgress, StartJobRequest
 from TravelRouter.components.rsync.functions import parse_progress
+
+
+logger = logging.getLogger("uvicorn.error")
+
+_RSYNC_ERROR_MARKERS = (
+    "[error]",
+    "broken pipe",
+    "client_loop: send disconnect",
+    "failed",
+    "rsync error:",
+    "write error:",
+)
 
 
 class Job:
@@ -57,8 +70,21 @@ class Job:
                     line,
                 )
 
+        if progress is None:
+            self._log_error_line(line)
+
         if self._on_update is not None:
             self._on_update.set()
+
+    def _log_error_line(self, line: str) -> None:
+        normalized_line = line.lower()
+        if any(marker in normalized_line for marker in _RSYNC_ERROR_MARKERS):
+            logger.error(
+                "[rsync] job_id=%s attempt=%s %s",
+                self.id,
+                self.attempt,
+                line,
+            )
 
     def get_log(self) -> list[str]:
         with self._lock:
@@ -83,6 +109,27 @@ class Job:
                 return self._progress_version, []
 
             return self._progress_version, [self._progress]
+
+    def snapshot(self) -> tuple["JobInfo", int, int]:
+        """Atomically return (JobInfo, log_offset, progress_version) for SSE init."""
+        with self._lock:
+            info = JobInfo(
+                id          = self.id,
+                label       = self.label,
+                source      = self.source,
+                destination = self.destination,
+                status      = self.status,
+                started_at  = self.started_at,
+                ended_at    = self.ended_at,
+                exit_code   = self.exit_code,
+                pid         = self.pid,
+                attempt     = self.attempt,
+                retries     = self.retries,
+                log_lines   = list(self._log),
+            )
+            log_offset       = self._log_offset + len(self._log)
+            progress_version = self._progress_version
+        return info, log_offset, progress_version
 
     def to_info(self) -> JobInfo:
         return JobInfo(
@@ -159,6 +206,14 @@ class JobManager:
     def start(self, req: StartJobRequest) -> Job:
         job_id = str(uuid.uuid4())
         job    = Job(job_id, req, on_update=self.any_update)
+        start_message = (
+            f"[start] job '{job.label or job.id}' "
+            f"{job.source} -> {job.destination} "
+            f"(retries={job.retries}, retry_delay={job.retry_delay}s)"
+        )
+        logger.info("[rsync] job_id=%s %s", job.id, start_message)
+        job.append(start_message)
+
         with self._lock:
             self._jobs[job_id] = job
 
@@ -227,15 +282,23 @@ class JobManager:
                         job.exit_code = -1
                         job._proc = None
                         job.pid = None
+                    logger.exception(
+                        "[rsync] job_id=%s attempt=%s unexpected error in JobManager._run",
+                        job.id,
+                        job.attempt,
+                    )
                     job.append(f"[error] {exc}")
 
                 # --- decide what to do next ---
-                if job.status == JobStatus.STOPPED:
+                with job._lock:
+                    stopped = job.status == JobStatus.STOPPED
+                if stopped:
                     # user cancelled — honour it regardless of exit code
                     break
 
                 if job.exit_code == 0:
-                    job.status = JobStatus.COMPLETED
+                    with job._lock:
+                        job.status = JobStatus.COMPLETED
                     break
 
                 # failure path
@@ -245,9 +308,9 @@ class JobManager:
                         f" (exit {job.exit_code}), "
                         f"retrying in {job.retry_delay}s …"
                     )
-                    job.status = JobStatus.WAITING
-                    if self.any_update:
-                        self.any_update.set()
+                    with job._lock:
+                        job.status = JobStatus.WAITING
+                    self.any_update.set()
 
                     # sleep in small increments so a stop() call is noticed quickly
                     deadline = time.monotonic() + job.retry_delay
@@ -256,25 +319,33 @@ class JobManager:
                             break
                         time.sleep(1)
 
-                    if job.status == JobStatus.STOPPED:
+                    with job._lock:
+                        stopped = job.status == JobStatus.STOPPED
+                    if stopped:
                         break
 
-                    job.attempt += 1
-                    job.status   = JobStatus.RUNNING
-                    job.exit_code = None
-                    job.pid = None
-                    if self.any_update:
-                        self.any_update.set()
+                    with job._lock:
+                        job.attempt  += 1
+                        job.status    = JobStatus.RUNNING
+                        job.exit_code = None
+                        job.pid       = None
+                    self.any_update.set()
                     continue
 
                 # no retries left
-                job.status = JobStatus.FAILED
+                logger.error(
+                    "[rsync] job_id=%s attempt=%s failed permanently with exit_code=%s",
+                    job.id,
+                    job.attempt,
+                    job.exit_code,
+                )
+                with job._lock:
+                    job.status = JobStatus.FAILED
                 break
 
         finally:
             job.ended_at = datetime.now(timezone.utc).isoformat()
-            if self.any_update:
-                self.any_update.set()
+            self.any_update.set()
 
     def stop(self, job_id: str) -> Job | None:
         job = self._get(job_id)
@@ -293,6 +364,18 @@ class JobManager:
         if self.any_update:
             self.any_update.set()
         return job
+
+    def remove(self, job_id: str) -> Job | None:
+        """Stop the job if still active, then delete it from the registry."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return None
+
+        self.stop(job_id)   # no-op if already finished
+
+        with self._lock:
+            return self._jobs.pop(job_id, None)
 
     def stop_all(self, join_timeout: float = 5.0) -> list[Job]:
         jobs = self.list_jobs()

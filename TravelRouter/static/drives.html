@@ -247,12 +247,17 @@ function updateSelectionUI() {
 
     const toolbar = document.getElementById(`transfer-toolbar-${idx}`);
     if (!toolbar) return;
-    if (selectedFolder && selectedFolder.driveIdx === idx) {
-      toolbar.style.display = 'flex';
-      const nameEl = toolbar.querySelector('.toolbar-sel-name');
-      if (nameEl) nameEl.textContent = selectedFolder.name;
-    } else {
-      toolbar.style.display = 'none';
+
+    const isSelected = selectedFolder && selectedFolder.driveIdx === idx;
+    toolbar.classList.toggle('inactive', !isSelected);
+
+    const nameEl = toolbar.querySelector('.toolbar-sel-name');
+    if (nameEl) nameEl.textContent = isSelected ? selectedFolder.name : 'Select a folder\u2026';
+
+    const btn = toolbar.querySelector('.btn');
+    if (btn) {
+      btn.disabled  = !isSelected;
+      btn.className = `btn btn-sm ${isSelected ? 'btn-primary' : 'btn-ghost'}`;
     }
   });
 }
@@ -276,6 +281,22 @@ async function loadRsyncConfig() {
 // plus any new line events received during this session.
 const rsyncJobs = new Map();
 
+// Jobs the user has dismissed — ignored on SSE replays.
+const dismissedJobs = new Set(
+  (() => { try { return JSON.parse(sessionStorage.getItem('dismissedJobs') || '[]'); } catch { return []; } })()
+);
+
+function saveDismissedJobs() {
+  try { sessionStorage.setItem('dismissedJobs', JSON.stringify([...dismissedJobs])); } catch {}
+}
+
+function dismissJob(jobId) {
+  dismissedJobs.add(jobId);
+  rsyncJobs.delete(jobId);
+  saveDismissedJobs();
+  renderJobs();
+}
+
 // ─── SSE connection ───────────────────────────────────────────────────────────
 
 let sseSource     = null;
@@ -289,29 +310,38 @@ function initSSE() {
 
   sseSource.addEventListener('job_start', e => {
     const info = JSON.parse(e.data);
+    if (dismissedJobs.has(info.id)) return;
     if (rsyncJobs.has(info.id)) {
-      // Server is replaying a known job — refresh its fields and merge any
-      // new log_lines the server has accumulated since we last saw it.
+      // Reconnect replay: server snapshot is the authoritative history.
+      // Subsequent `line` SSE events will deliver everything after the snapshot,
+      // so we must adopt the snapshot as-is rather than trying to merge.
       const job = rsyncJobs.get(info.id);
-      const existingCount = job.logs.length;
-      const serverLogs    = info.log_lines || [];
-      // Append server lines we haven't seen yet (server keeps the authoritative list)
-      if (serverLogs.length > existingCount) {
-        job.logs = serverLogs;
-      }
-      Object.assign(job, {
-        label:       info.label || job.label,
+      job.logs        = info.log_lines || [];
+      job.label       = info.label || job.label;
+      job.source      = info.source;
+      job.destination = info.destination;
+      job.status      = info.status;
+      job.exit_code   = info.exit_code;
+      job.ended_at    = info.ended_at   ?? job.ended_at;
+      job.started_at  = info.started_at;
+      job.attempt     = info.attempt;
+      job.retries     = info.retries;
+      job.pid         = info.pid;
+    } else {
+      rsyncJobs.set(info.id, {
+        id:          info.id,
+        label:       info.label,
         source:      info.source,
         destination: info.destination,
         status:      info.status,
         exit_code:   info.exit_code,
         started_at:  info.started_at,
-      });
-    } else {
-      rsyncJobs.set(info.id, {
-        ...info,
-        logs:     info.log_lines || [],
-        progress: null,
+        ended_at:    info.ended_at   ?? null,
+        attempt:     info.attempt,
+        retries:     info.retries,
+        pid:         info.pid,
+        logs:        info.log_lines || [],
+        progress:    null,
       });
     }
     renderJobs();
@@ -340,6 +370,7 @@ function initSSE() {
     if (!job) return;
     job.status    = data.status;
     job.exit_code = data.exit_code;
+    job.ended_at  = data.ended_at ?? null;
     job.progress  = null;
     renderJobs();
   });
@@ -394,12 +425,19 @@ function buildJobCard(job) {
     stopped:   '&#x25A0; Stopped',
   }[job.status] || job.status;
 
-  const canStop = job.status === 'running' || job.status === 'waiting';
-  const hasError = job.status === 'failed' || (job.exit_code !== null && job.exit_code !== 0);
-  const hasLogs = job.logs && job.logs.some(line => String(line).trim());
+  const canStop    = job.status === 'running' || job.status === 'waiting';
+  const canDismiss = !canStop;
+  const hasError   = job.status === 'failed' || (job.exit_code !== null && job.exit_code !== 0);
+  const hasLogs    = job.logs && job.logs.some(line => String(line).trim());
 
   const srcShort = job.source
     ? job.source.replace(/\/$/, '').split('/').pop() || job.source
+    : '';
+
+  // Show "attempt X/N" when the job has retries configured or is already on a retry.
+  const totalAttempts = (job.retries || 0) + 1;
+  const attemptNote   = totalAttempts > 1
+    ? `<span style="font-size:12px;color:var(--text-sub);margin-left:6px;">attempt ${job.attempt || 1}/${totalAttempts}</span>`
     : '';
 
   const logsBtn = hasLogs
@@ -410,23 +448,29 @@ function buildJobCard(job) {
     : '';
 
   const stopBtn = canStop
-    ? `<button class="btn btn-sm btn-ghost" onclick="stopJob('${job.id}')" title="Stop job">&#x25A0;</button>`
+    ? `<button class="btn btn-sm btn-ghost stop-btn" onclick="stopJob('${job.id}')" title="Stop job">&#x25A0;</button>`
     : '';
 
+  const dismissBtn = canDismiss
+    ? `<button class="btn btn-sm btn-ghost" onclick="dismissJob('${job.id}')" title="Remove from list">&#x2715;</button>`
+    : '';
+
+  const showProgress = (job.status === 'running' || job.status === 'waiting') && job.progress;
   card.innerHTML = `
     <div class="job-card-head">
       <div class="job-icon">&#x1F4E6;</div>
       <div class="job-info">
         <div class="job-name">${esc(job.label || job.id)}</div>
-        <div class="job-path">${esc(srcShort)} &#x2192; ${esc(job.destination || '')}</div>
+        <div class="job-path">${esc(srcShort)} &#x2192; ${esc(job.destination || '')}${attemptNote}</div>
       </div>
       <div class="job-actions">
         ${logsBtn}
         ${stopBtn}
+        ${dismissBtn}
         <span class="job-status-badge ${job.status}">${statusLabel}</span>
       </div>
     </div>
-    <div class="job-progress" id="job-progress-${job.id}" style="display:${job.progress && job.status === 'running' ? 'block' : 'none'}">
+    <div class="job-progress" id="job-progress-${job.id}" style="display:${showProgress ? 'block' : 'none'}">
       <div class="progress-bar">
         <div class="progress-fill" id="job-fill-${job.id}" style="width:${job.progress ? job.progress.percent : 0}%"></div>
       </div>
@@ -460,15 +504,42 @@ function updateJobProgress(jobId, progress) {
   if (eta) eta.textContent = `ETA ${progress.eta}`;
 }
 
-// ─── Stop job ─────────────────────────────────────────────────────────────────
+// ─── Stop / dismiss jobs ──────────────────────────────────────────────────────
 
-async function stopJob(jobId) {
+// DELETE /rsync/jobs/{id} stops the job if running then removes it from the
+// server registry. Both stopJob and dismissJob go through this path.
+async function _removeJobFromServer(jobId) {
   const r = await api('DELETE', `/rsync/jobs/${jobId}`);
   if (r && r.success) {
-    toast('Job stopped', 'info');
-  } else {
-    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Could not stop job', 'error');
+    dismissedJobs.add(jobId);
+    rsyncJobs.delete(jobId);
+    saveDismissedJobs();
+    renderJobs();
+    return true;
   }
+  const errMsg = (r && typeof r.msg === 'string' && r.msg)
+              || (r && typeof r.detail === 'string' && r.detail)
+              || 'Could not remove job';
+  toast(errMsg, 'error');
+  return false;
+}
+
+async function stopJob(jobId) {
+  const card    = document.getElementById(`job-card-${jobId}`);
+  const stopBtn = card && card.querySelector('.stop-btn');
+  if (stopBtn) { stopBtn.disabled = true; stopBtn.innerHTML = '<span class="spin-dark"></span>'; }
+
+  const ok = await _removeJobFromServer(jobId);
+  if (ok) {
+    toast('Job stopped', 'info');
+  } else if (stopBtn) {
+    stopBtn.disabled = false;
+    stopBtn.innerHTML = '&#x25A0;';
+  }
+}
+
+async function dismissJob(jobId) {
+  await _removeJobFromServer(jobId);
 }
 
 // ─── Log modal ────────────────────────────────────────────────────────────────
@@ -742,13 +813,15 @@ function buildTransferToolbar(idx) {
   toolbar.id = `transfer-toolbar-${idx}`;
 
   const isSelected = selectedFolder && selectedFolder.driveIdx === idx;
-  toolbar.style.display = isSelected ? 'flex' : 'none';
+  if (!isSelected) toolbar.classList.add('inactive');
 
   toolbar.innerHTML = `
     <span style="font-size:15px;">&#x1F4C1;</span>
-    <span class="toolbar-sel-name">${isSelected ? esc(selectedFolder.name) : ''}</span>
+    <span class="toolbar-sel-name">${isSelected ? esc(selectedFolder.name) : 'Select a folder\u2026'}</span>
     <span style="flex:1;"></span>
-    <button class="btn btn-sm btn-primary" onclick="openTransferModal()">Start Transfer &#x203A;</button>`;
+    <button class="btn btn-sm ${isSelected ? 'btn-primary' : 'btn-ghost'}"
+            ${isSelected ? '' : 'disabled'}
+            onclick="openTransferModal()">Start Transfer &#x203A;</button>`;
 
   return toolbar;
 }
