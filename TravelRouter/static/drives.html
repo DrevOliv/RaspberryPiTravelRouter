@@ -560,13 +560,14 @@ function closeTransferModal(e) {
 
 async function confirmTransfer() {
   if (!pendingTransfer) return;
-  const jobName    = document.getElementById('transfer-name-input').value.trim() || pendingTransfer.name;
+  const jobName     = document.getElementById('transfer-name-input').value.trim() || pendingTransfer.name;
+  const source      = pendingTransfer.source;   // capture before closeTransferModal nulls pendingTransfer
   const destination = `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`;
 
   closeTransferModal();
 
   const r = await api('POST', '/rsync/jobs', {
-    source:      pendingTransfer.source,
+    source,
     destination,
     label:       jobName,
     retries:     2,
