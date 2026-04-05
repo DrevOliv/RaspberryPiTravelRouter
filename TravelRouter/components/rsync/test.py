@@ -12,7 +12,7 @@ from TravelRouter.components.rsync.system_api import JobManager
 
 
 SOURCE_DIR = Path("/home/server/workspace/Bilder")
-DEST_DIR = Path("server@192.168.0.53:TEST")
+DEST_DIR = Path("server@192.168.0.53:TESTING")
 STOP_AFTER_SECONDS = 1000.0
 
 

@@ -132,20 +132,22 @@ class Job:
         return info, log_offset, progress_version
 
     def to_info(self) -> JobInfo:
-        return JobInfo(
-            id          = self.id,
-            label       = self.label,
-            source      = self.source,
-            destination = self.destination,
-            status      = self.status,
-            started_at  = self.started_at,
-            ended_at    = self.ended_at,
-            exit_code   = self.exit_code,
-            pid         = self.pid,
-            attempt     = self.attempt,
-            retries     = self.retries,
-            log_lines   = self.get_log(),
-        )
+        with self._lock():
+            job_info = JobInfo(
+                id          = self.id,
+                label       = self.label,
+                source      = self.source,
+                destination = self.destination,
+                status      = self.status,
+                started_at  = self.started_at,
+                ended_at    = self.ended_at,
+                exit_code   = self.exit_code,
+                pid         = self.pid,
+                attempt     = self.attempt,
+                retries     = self.retries,
+                log_lines   = self.get_log(),
+            )
+        return job_info
 
 
 class JobManager:
@@ -344,7 +346,8 @@ class JobManager:
                 break
 
         finally:
-            job.ended_at = datetime.now(timezone.utc).isoformat()
+            with self._lock():
+                job.ended_at = datetime.now(timezone.utc).isoformat()
             self.any_update.set()
 
     def stop(self, job_id: str) -> Job | None:
@@ -378,6 +381,7 @@ class JobManager:
             return self._jobs.pop(job_id, None)
 
     def stop_all(self, join_timeout: float = 5.0) -> list[Job]:
+        
         jobs = self.list_jobs()
 
         for job in jobs:

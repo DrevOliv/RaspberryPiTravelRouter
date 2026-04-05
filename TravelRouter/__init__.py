@@ -11,6 +11,7 @@ from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
 from TravelRouter.components.drive import router as drive_router
 from TravelRouter.components.rsync import router as rsync_router
+from TravelRouter.components.rsync.api_stream import signal_shutdown
 from TravelRouter.components.rsync.system_api import job_manager
 from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
@@ -100,6 +101,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
+        signal_shutdown()
         job_manager.stop_all()
 
 

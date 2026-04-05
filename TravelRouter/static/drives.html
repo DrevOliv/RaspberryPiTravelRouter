@@ -360,8 +360,22 @@ function initSSE() {
     const data = JSON.parse(e.data);
     const job  = rsyncJobs.get(data.job_id);
     if (!job) return;
+    const wasEmpty = !job.logs.some(line => String(line).trim());
     job.logs.push(data.text);
     appendToOpenLog(data.job_id, data.text);
+    // Re-render once so the log button appears when the first line arrives.
+    if (wasEmpty && String(data.text).trim()) renderJobs();
+  });
+
+  sseSource.addEventListener('job_update', e => {
+    const data = JSON.parse(e.data);
+    const job  = rsyncJobs.get(data.job_id);
+    if (!job) return;
+    job.status    = data.status;
+    job.attempt   = data.attempt;
+    job.exit_code = data.exit_code;
+    job.pid       = data.pid;
+    renderJobs();
   });
 
   sseSource.addEventListener('job_done', e => {
@@ -369,6 +383,7 @@ function initSSE() {
     const job  = rsyncJobs.get(data.job_id);
     if (!job) return;
     job.status    = data.status;
+    job.attempt   = data.attempt;
     job.exit_code = data.exit_code;
     job.ended_at  = data.ended_at ?? null;
     job.progress  = null;
