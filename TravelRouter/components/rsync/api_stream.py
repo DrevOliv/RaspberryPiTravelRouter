@@ -22,13 +22,10 @@ def _sse_event(event_name: str, payload: dict) -> str:
     return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n"
 
 
-def _stream_job_updates(job, sent_progress: dict[str, int], sent_logs: dict[str, int]):
-    sent_progress[job.id], progress_items = job.get_progress_from(sent_progress[job.id])
-    for progress in progress_items:
-        yield _sse_event(
-            "progress",
-            {"job_id": job.id, **progress.model_dump()},
-        )
+def _stream_job_updates(job, sent_logs: dict[str, int]):
+    progress = job.get_progress()
+    if progress is not None:
+        yield _sse_event("progress", {"job_id": job.id, **progress.model_dump()})
 
     sent_logs[job.id], log_lines = job.get_log_from(sent_logs[job.id])
     for line in log_lines:
@@ -36,9 +33,8 @@ def _stream_job_updates(job, sent_progress: dict[str, int], sent_logs: dict[str,
 
 
 async def _job_stream_generator(job_manager):
-    sent_progress: dict[str, int] = {}
     sent_logs: dict[str, int] = {}
-    sent_meta: dict[str, tuple] = {}   # job_id -> (status, attempt, exit_code)
+    sent_meta: dict[str, tuple] = {}   # job_id -> (status, exit_code)
     finished: set[str] = set()
 
     while True:
@@ -50,32 +46,30 @@ async def _job_stream_generator(job_manager):
         try:
             for job in job_manager.list_jobs():
                 if job.id not in sent_logs:
-                    # Atomic snapshot: job_start log and the offsets are consistent.
-                    info, log_offset, progress_version = job.snapshot()
-                    sent_logs[job.id]     = log_offset
-                    sent_progress[job.id] = progress_version
-                    sent_meta[job.id]     = (info.status.value, info.attempt, info.exit_code)
+                    # Atomic snapshot: job_start log and the offset are consistent.
+                    info, log_offset = job.snapshot()
+                    sent_logs[job.id] = log_offset
+                    sent_meta[job.id] = (info.status.value, info.exit_code)
                     yield _sse_event("job_start", info.model_dump())
 
-                for event_chunk in _stream_job_updates(job, sent_progress, sent_logs):
+                for event_chunk in _stream_job_updates(job, sent_logs):
                     yield event_chunk
 
                 if job.id in finished or job.status.value in _ACTIVE_STATUSES:
-                    # Emit job_update when status/attempt/exit_code changes mid-run.
-                    current_meta = (job.status.value, job.attempt, job.exit_code)
+                    # Emit job_update when status/exit_code changes mid-run.
+                    current_meta = (job.status.value, job.exit_code)
                     if sent_meta.get(job.id) != current_meta:
                         sent_meta[job.id] = current_meta
                         yield _sse_event("job_update", {
                             "job_id":    job.id,
                             "status":    job.status.value,
-                            "attempt":   job.attempt,
                             "exit_code": job.exit_code,
                             "pid":       job.pid,
                         })
                     continue
 
                 # Final flush before marking done.
-                for event_chunk in _stream_job_updates(job, sent_progress, sent_logs):
+                for event_chunk in _stream_job_updates(job, sent_logs):
                     yield event_chunk
 
                 finished.add(job.id)
