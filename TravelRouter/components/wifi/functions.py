@@ -87,12 +87,18 @@ def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
 # _______________________ Parse current wifi data ____________________________
 
 def parse_current_network(stdout: str) -> WifiCurrent:
-    lines = stdout.strip().split("\n")
+    # stdout is: "<nmcli output>\x00<wlan operstate>\x00<eth operstate>"
+    # nmcli output has variable line count (trailing empty lines are stripped by run_command),
+    # so we use a null-byte separator to avoid off-by-one errors.
+    parts = stdout.split("\x00")
+    nmcli_lines = parts[0].strip().split("\n")
+    operstate = parts[1].strip() if len(parts) > 1 else ""
+    eth_operstate = parts[2].strip() if len(parts) > 2 else ""
     return WifiCurrent(
-        state=lines[0] if len(lines) > 0 else "",
-        ssid=lines[1] if len(lines) > 1 else "",
-        operstate=lines[2] if len(lines) > 2 else "",
-        eth_operstate=lines[3] if len(lines) > 3 else "",
+        state=nmcli_lines[0] if len(nmcli_lines) > 0 else "",
+        ssid=nmcli_lines[1] if len(nmcli_lines) > 1 else "",
+        operstate=operstate,
+        eth_operstate=eth_operstate,
     )
 
 if __name__ == '__main__':

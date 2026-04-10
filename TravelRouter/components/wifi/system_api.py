@@ -28,7 +28,9 @@ def _read_operstate(interface: str) -> str:
         return "unknown"
 
 
+_SEP = "\x00"  # null byte — never appears in nmcli or sysfs output
+
 def get_connected_network(interface: str, eth_interface: str = "eth0") -> CmdStatus:
     result = run_command(["nmcli", "-t", "-g", "GENERAL.STATE,GENERAL.CONNECTION", "device", "show", interface])
-    result.stdout = f"{result.stdout}\n{_read_operstate(interface)}\n{_read_operstate(eth_interface)}"
+    result.stdout = f"{result.stdout}{_SEP}{_read_operstate(interface)}{_SEP}{_read_operstate(eth_interface)}"
     return result

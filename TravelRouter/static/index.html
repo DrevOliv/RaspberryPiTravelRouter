@@ -335,9 +335,12 @@ async function pollTs() {
 // ─── UI: WiFi status chip ───────────────────────────────────────────────────
 
 function updateWifiChip(current) {
-  const connected  = current && current.ssid && current.ssid !== '--';
-  const dormant    = !connected && current && current.operstate === 'dormant';
+  // Use kernel operstate as the source of truth — wlan0 can be NM-connected but
+  // dormant (associated to AP but eth0 has lower metric and is handling traffic).
+  const operstate  = current && current.operstate  || '';
   const ethUp      = current && current.eth_operstate === 'up';
+  const connected  = operstate === 'up' && current && current.ssid && current.ssid !== '--';
+  const dormant    = operstate === 'dormant';
 
   document.getElementById('wifi-dot').className     = 'dot ' + (connected ? 'green' : dormant ? 'orange' : 'red');
   document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : dormant ? 'Dormant' : 'Not connected';
