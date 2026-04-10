@@ -78,7 +78,6 @@ async def _job_stream_generator(job_manager):
                     {
                         "job_id":    job.id,
                         "status":    job.status.value,
-                        "attempt":   job.attempt,
                         "exit_code": job.exit_code,
                         "ended_at":  job.ended_at,
                     },

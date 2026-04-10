@@ -108,6 +108,7 @@ Wants=network.target
 Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/sbin/ip addr add 192.168.50.1/24 dev wlan1
+ExecStart=/usr/sbin/iw dev wlan1 set power_save off
 ExecStop=/usr/sbin/ip addr del 192.168.50.1/24 dev wlan1
 
 [Install]
@@ -195,7 +196,31 @@ ls /var/run/hostapd/wlan1
 
 ---
 
-### 6. Enable IP forwarding and NAT
+### 6. Set upstream interface priority (eth0 over wlan0)
+
+When both ethernet and Wi-Fi are connected, eth0 should be preferred. Create a NetworkManager dispatcher script to set route metrics automatically whenever an interface comes up:
+
+```bash
+sudo tee /etc/NetworkManager/dispatcher.d/10-route-metric > /dev/null << 'EOF'
+#!/bin/bash
+if [ "$2" = "up" ]; then
+    if [ "$DEVICE_IFACE" = "wlan0" ]; then
+        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 100
+    fi
+    if [ "$DEVICE_IFACE" = "eth0" ]; then
+        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 50
+    fi
+fi
+EOF
+
+sudo chmod +x /etc/NetworkManager/dispatcher.d/10-route-metric
+```
+
+Lower metric = higher priority, so eth0 (50) beats wlan0 (100).
+
+---
+
+### 7. Enable IP forwarding and NAT
 
 ```bash
 # Persist IP forwarding across reboots
@@ -205,10 +230,21 @@ EOF
 
 sudo sysctl -p /etc/sysctl.d/99-travelrouter.conf
 
-# NAT rules — replace wlan0 with your upstream interface if different
+# wlan0 (upstream Wi-Fi)
 sudo iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
 sudo iptables -A FORWARD -i wlan1 -o wlan0 -j ACCEPT
 sudo iptables -A FORWARD -i wlan0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# eth0 (ethernet — used when connected, preferred over wlan0)
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan1 -o eth0 -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# tailscale0 (when Tailscale exit node is active)
+# These rules are inactive when Tailscale is off — no impact on normal routing
+sudo iptables -t nat -A POSTROUTING -o tailscale0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan1 -o tailscale0 -j ACCEPT
+sudo iptables -A FORWARD -i tailscale0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
 
 # Save rules so they survive a reboot
 sudo apt install -y iptables-persistent

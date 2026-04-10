@@ -38,17 +38,24 @@ class HostapdController:
 
     def _send_cmd(self, cmd: str) -> tuple[str, bool]:
         if not os.path.exists(self.ctrl_path):
-            return "hostapd control socket not found", False
+            return f"hostapd socket not found: {self.ctrl_path}", False
 
         if os.path.exists(self.client_path):
             os.remove(self.client_path)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
-        sock.bind(self.client_path)
         try:
+            sock.bind(self.client_path)
+            sock.settimeout(5)
             sock.connect(self.ctrl_path)
             sock.send(cmd.encode())
             response = sock.recv(8192).decode()
+        except PermissionError:
+            return f"permission denied on hostapd socket — is the user in the netdev group?", False
+        except TimeoutError:
+            return "hostapd socket timed out", False
+        except OSError as e:
+            return str(e), False
         finally:
             sock.close()
             if os.path.exists(self.client_path):

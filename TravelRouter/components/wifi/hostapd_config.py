@@ -31,6 +31,7 @@ class HostapdConfig(BaseModel):
             f"auth_algs=1\n"
             f"ignore_broadcast_ssid=0\n"
             f"ctrl_interface=/var/run/hostapd\n"
+            f"ctrl_interface_group=netdev\n"
         )
 
     def set_password(self, password: str) -> bool:
