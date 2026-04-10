@@ -504,6 +504,14 @@ async function doConnect(ssid, isOpen, password) {
 
 // ─── UI: Devices ─────────────────────────────────────────────────────────────
 
+function formatConnectedTime(seconds) {
+  const s = Number(seconds);
+  if (!s || isNaN(s)) return '';
+  if (s < 60)   return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
 function renderDevices(devices) {
   const body  = document.getElementById('devices-body');
   const badge = document.getElementById('dev-badge');
@@ -514,15 +522,20 @@ function renderDevices(devices) {
     return;
   }
 
-  body.innerHTML = devices.map(d => `
+  body.innerHTML = devices.map(d => {
+    const signal = d.signal_dbm ? `${esc(d.signal_dbm)} dBm` : '';
+    const time   = formatConnectedTime(d.connected_time);
+    const meta   = [signal, time].filter(Boolean).join(' · ');
+    return `
     <div class="dev-row">
       <div class="dev-icon">&#x1F4BB;</div>
       <div class="dev-info">
-        <div class="dev-name">${esc(d.name)}</div>
+        <div class="dev-name">${esc(d.name || d.mac)}</div>
         <div class="dev-mac">${esc(d.mac)}</div>
       </div>
-      <div class="dev-ip">${esc(d.ip)}</div>
-    </div>`).join('');
+      ${meta ? `<div class="dev-ip">${meta}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ─── UI: Tailscale ───────────────────────────────────────────────────────────

@@ -8,17 +8,15 @@ from TravelRouter.components.wifi.functions import (
     wifi_qr_svg,
     parse_wifi_scan_rows,
     parse_current_network,
-    ap_connected_devices,
 )
 
 from TravelRouter.components.wifi.system_api import (
     connect_wifi,
     disconnect_wifi,
-    apply_ap_ssid,
-    apply_ap_password,
     scan_for_wifi_networks,
     get_connected_network,
 )
+from TravelRouter.components.wifi.hostapd import hostapd_controller
 
 from TravelRouter.components.wifi.data_models import (
     WifiConnectBody,
@@ -116,7 +114,7 @@ async def api_home_wifi_live():
                        msg=WifiLiveResponse(
                            wifi_networks=wifi_networks,
                            wifi_current=current_network,
-                           connected_devices=await run_in_thread(ap_connected_devices, settings.wifi.ap_interface),
+                           connected_devices=await run_in_thread(hostapd_controller.get_connected_devices),
                        ),
                        msg_type="json")
 
@@ -140,21 +138,15 @@ async def api_home_ap_qr():
     response_model=ApiResponse,
     tags=["wifi"],
     summary="Save private Wi-Fi SSID",
-    description="Updates the private AP SSID on the existing NetworkManager access-point profile.",
+    description="Updates the private AP SSID in the hostapd config and reloads the access point.",
 )
 async def api_wifi_ap_ssid(body: ApSsidBody):
     ap_ssid = body.ap_ssid.strip()
     if not ap_ssid:
-        return ApiResponse(msg=f"SSID cannot be empty")
-    result = await run_in_thread(apply_ap_ssid, ap_ssid)
+        return ApiResponse(msg="SSID cannot be empty")
+    result = await run_in_thread(hostapd_controller.change_ap_creds, ssid=ap_ssid)
     if not result.success:
         return ApiResponse(msg=result)
-
-    settings = data_manager.get_data()
-
-    settings.wifi.ap_ssid = ap_ssid
-    data_manager.set_data(settings)
-
     return ApiResponse(success=True, msg="AP SSID saved")
 
 
@@ -163,14 +155,10 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
     response_model=ApiResponse,
     tags=["wifi"],
     summary="Save private Wi-Fi password",
-    description="Updates the private AP password on the existing NetworkManager access-point profile.",
+    description="Updates the private AP password in the hostapd config and reloads the access point.",
 )
 async def api_wifi_ap_password(body: ApPasswordBody):
-    result = await run_in_thread(apply_ap_password, body.ap_password.strip())
+    result = await run_in_thread(hostapd_controller.change_ap_creds, wpa_passphrase=body.ap_password.strip())
     if not result.success:
         return ApiResponse(msg=result)
-    settings = data_manager.get_data()
-    settings.wifi.ap_password = body.ap_password.strip()
-    data_manager.set_data(settings)
-
     return ApiResponse(success=True, msg="AP password saved")

@@ -33,10 +33,11 @@ class WifiCurrent(BaseModel):
     ssid: str = Field("", description="Current upstream SSID.")
 
 class ConnectedDevice(BaseModel):
-    name: str = Field("", description="Best available device label, usually a hostname or a friendly fallback.")
-    ip: str = Field("", description="IPv4 or IPv6 address seen on the private AP.")
-    mac: str = Field("", description="MAC address if available.")
-    state: str = Field("", description="Neighbor or lease state for the connected device.")
+    mac: str = Field("", description="MAC address of the connected device.")
+    name: str = Field("", description="Device label — hostname if known, otherwise MAC.")
+    signal_dbm: str = Field("", description="Signal strength in dBm as reported by hostapd.")
+    connected_time: str = Field("", description="Seconds the device has been connected.")
+    state: str = Field("", description="Connection state reported by hostapd.")
 
 
 class WifiLiveResponse(BaseModel):
