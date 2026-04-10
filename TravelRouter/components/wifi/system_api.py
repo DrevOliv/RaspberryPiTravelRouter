@@ -21,5 +21,14 @@ def scan_for_wifi_networks(upstream_interface: str) -> CmdStatus:
     ])
 
 
-def get_connected_network(interface: str) -> CmdStatus:
-    return run_command(["nmcli", "-t", "-g", "GENERAL.STATE,GENERAL.CONNECTION", "device", "show", interface])
+def _read_operstate(interface: str) -> str:
+    try:
+        return open(f"/sys/class/net/{interface}/operstate").read().strip()
+    except OSError:
+        return "unknown"
+
+
+def get_connected_network(interface: str, eth_interface: str = "eth0") -> CmdStatus:
+    result = run_command(["nmcli", "-t", "-g", "GENERAL.STATE,GENERAL.CONNECTION", "device", "show", interface])
+    result.stdout = f"{result.stdout}\n{_read_operstate(interface)}\n{_read_operstate(eth_interface)}"
+    return result

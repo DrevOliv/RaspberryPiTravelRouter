@@ -29,8 +29,10 @@ class WifiNetwork(BaseModel):
 
 
 class WifiCurrent(BaseModel):
-    state: str = Field(False, description="Whether the Pi is currently connected to an upstream Wi-Fi network and the state of the connected Wi-Fi network.")
+    state: str = Field("", description="NM connection state of the upstream interface.")
     ssid: str = Field("", description="Current upstream SSID.")
+    operstate: str = Field("", description="Kernel operstate of the upstream interface (up, down, dormant, etc).")
+    eth_operstate: str = Field("", description="Kernel operstate of the ethernet interface.")
 
 class ConnectedDevice(BaseModel):
     mac: str = Field("", description="MAC address of the connected device.")

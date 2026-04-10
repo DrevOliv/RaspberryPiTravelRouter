@@ -91,6 +91,8 @@ def parse_current_network(stdout: str) -> WifiCurrent:
     return WifiCurrent(
         state=lines[0] if len(lines) > 0 else "",
         ssid=lines[1] if len(lines) > 1 else "",
+        operstate=lines[2] if len(lines) > 2 else "",
+        eth_operstate=lines[3] if len(lines) > 3 else "",
     )
 
 if __name__ == '__main__':

@@ -35,6 +35,11 @@
       <span class="chip-label">WiFi</span>
       <span class="chip-val" id="wifi-chip-val">&#x2014;</span>
     </div>
+    <div class="chip" id="eth-chip" style="display:none;">
+      <div class="dot green"></div>
+      <span class="chip-label">Cable</span>
+      <span class="chip-val">Connected</span>
+    </div>
     <div class="chip">
       <div class="dot" id="ts-dot"></div>
       <span class="chip-label">Tailscale</span>
@@ -330,9 +335,13 @@ async function pollTs() {
 // ─── UI: WiFi status chip ───────────────────────────────────────────────────
 
 function updateWifiChip(current) {
-  const connected = current && current.ssid && current.ssid !== '--';
-  document.getElementById('wifi-dot').className  = 'dot ' + (connected ? 'green' : 'red');
-  document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : 'Not connected';
+  const connected  = current && current.ssid && current.ssid !== '--';
+  const dormant    = !connected && current && current.operstate === 'dormant';
+  const ethUp      = current && current.eth_operstate === 'up';
+
+  document.getElementById('wifi-dot').className     = 'dot ' + (connected ? 'green' : dormant ? 'yellow' : 'red');
+  document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : dormant ? 'Dormant' : 'Not connected';
+  document.getElementById('eth-chip').style.display = ethUp ? '' : 'none';
 }
 
 // ─── UI: Network list ────────────────────────────────────────────────────────
