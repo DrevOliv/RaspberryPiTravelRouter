@@ -339,7 +339,7 @@ function updateWifiChip(current) {
   const dormant    = !connected && current && current.operstate === 'dormant';
   const ethUp      = current && current.eth_operstate === 'up';
 
-  document.getElementById('wifi-dot').className     = 'dot ' + (connected ? 'green' : dormant ? 'yellow' : 'red');
+  document.getElementById('wifi-dot').className     = 'dot ' + (connected ? 'green' : dormant ? 'orange' : 'red');
   document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : dormant ? 'Dormant' : 'Not connected';
   document.getElementById('eth-chip').style.display = ethUp ? '' : 'none';
 }

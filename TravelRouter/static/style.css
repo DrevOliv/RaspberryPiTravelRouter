@@ -11,6 +11,7 @@
   --green-dim:    rgba(63, 185, 80, 0.12);
   --yellow:       #d29922;
   --yellow-dim:   rgba(210, 153, 34, 0.12);
+  --orange:       #e8852a;
   --red:          #f85149;
   --red-dim:      rgba(248, 81, 73, 0.12);
   --text:         #e6edf3;
@@ -143,7 +144,8 @@ a:hover { text-decoration: underline; }
 
 .dot.green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
 .dot.red    { background: var(--red); }
-.dot.yellow { background: var(--yellow); }
+.dot.yellow  { background: var(--yellow); }
+.dot.orange  { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
 
 .chip-label { color: var(--text-sub); }
 .chip-val   { color: var(--text); font-weight: 500; }

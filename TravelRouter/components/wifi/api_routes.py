@@ -106,7 +106,7 @@ async def api_home_wifi_live():
 
     # Get connected network — not fatal if wlan0 is disconnected
     result = await run_in_thread(get_connected_network, settings.wifi.upstream_interface)
-    current_network = parse_current_network(result.stdout) if result.success else WifiCurrent()
+    current_network = parse_current_network(result.stdout)
 
     return ApiResponse(success=True,
                        msg=WifiLiveResponse(
