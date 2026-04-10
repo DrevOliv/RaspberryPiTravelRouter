@@ -88,8 +88,10 @@ def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
 
 def parse_current_network(stdout: str) -> WifiCurrent:
     lines = stdout.strip().split("\n")
-
-    return WifiCurrent(state=lines[0], ssid=lines[1])
+    return WifiCurrent(
+        state=lines[0] if len(lines) > 0 else "",
+        ssid=lines[1] if len(lines) > 1 else "",
+    )
 
 if __name__ == '__main__':
     print(wifi_qr_svg("test", "test"))

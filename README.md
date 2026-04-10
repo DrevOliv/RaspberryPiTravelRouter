@@ -55,9 +55,15 @@ sudo systemctl stop dnsmasq
 
 ---
 
-### 2. Tell NetworkManager to ignore the AP interface
+### 2. Enable NetworkManager and configure interfaces
 
-The AP interface (`wlan1`) must not be managed by NetworkManager — hostapd and dnsmasq own it.
+Enable and start NetworkManager so it manages `wlan0` (upstream Wi-Fi):
+
+```bash
+sudo systemctl enable --now NetworkManager
+```
+
+Tell NetworkManager to ignore `wlan1` — hostapd and dnsmasq own that interface:
 
 ```bash
 sudo mkdir -p /etc/NetworkManager/conf.d
@@ -68,6 +74,22 @@ EOF
 
 sudo systemctl restart NetworkManager
 ```
+
+Verify `wlan0` shows as `managed` and `wlan1` as `unmanaged`:
+
+```bash
+nmcli device status
+```
+
+Expected output:
+
+```
+DEVICE   TYPE      STATE        CONNECTION
+wlan0    wifi      disconnected --
+wlan1    wifi      unmanaged    --
+```
+
+`wlan0` will show `disconnected` until you connect to an upstream network through the app.
 
 ---
 

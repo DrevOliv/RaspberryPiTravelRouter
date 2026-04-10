@@ -23,6 +23,7 @@ from TravelRouter.components.wifi.data_models import (
     WifiSettingsBody,
     ApSsidBody,
     ApPasswordBody,
+    WifiCurrent,
     WifiLiveResponse,
 )
 
@@ -103,12 +104,9 @@ async def api_home_wifi_live():
 
     wifi_networks = parse_wifi_scan_rows(result.stdout)
 
-    # Get connected network
+    # Get connected network — not fatal if wlan0 is disconnected
     result = await run_in_thread(get_connected_network, settings.wifi.upstream_interface)
-    if not result.success:
-        return ApiResponse(msg=result)
-
-    current_network = parse_current_network(result.stdout)
+    current_network = parse_current_network(result.stdout) if result.success else WifiCurrent()
 
     return ApiResponse(success=True,
                        msg=WifiLiveResponse(
