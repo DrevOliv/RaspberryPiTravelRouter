@@ -524,16 +524,14 @@ function renderDevices(devices) {
 
   body.innerHTML = devices.map(d => {
     const signal = d.signal_dbm ? `${esc(d.signal_dbm)} dBm` : '';
-    const time   = formatConnectedTime(d.connected_time);
-    const meta   = [signal, time].filter(Boolean).join(' · ');
     return `
     <div class="dev-row">
       <div class="dev-icon">&#x1F4BB;</div>
       <div class="dev-info">
         <div class="dev-name">${esc(d.name || d.mac)}</div>
-        <div class="dev-mac">${esc(d.mac)}</div>
+        <div class="dev-mac">${esc(d.ip || d.mac)}</div>
       </div>
-      ${meta ? `<div class="dev-ip">${meta}</div>` : ''}
+      ${signal ? `<div class="dev-ip">${signal}</div>` : ''}
     </div>`;
   }).join('');
 }

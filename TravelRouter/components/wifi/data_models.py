@@ -34,7 +34,8 @@ class WifiCurrent(BaseModel):
 
 class ConnectedDevice(BaseModel):
     mac: str = Field("", description="MAC address of the connected device.")
-    name: str = Field("", description="Device label — hostname if known, otherwise MAC.")
+    ip: str = Field("", description="IP address from dnsmasq lease, if available.")
+    name: str = Field("", description="Hostname from dnsmasq lease, or MAC as fallback.")
     signal_dbm: str = Field("", description="Signal strength in dBm as reported by hostapd.")
     connected_time: str = Field("", description="Seconds the device has been connected.")
     state: str = Field("", description="Connection state reported by hostapd.")

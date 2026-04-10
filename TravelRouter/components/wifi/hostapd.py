@@ -141,27 +141,53 @@ class HostapdController:
         data = dict(line.split("=", 1) for line in raw.splitlines() if "=" in line)
         return ApiResponse(success=success, msg=data, msg_type="json")
 
+    def _read_leases(self) -> dict[str, dict]:
+        leases: dict[str, dict] = {}
+        try:
+            with open("/var/lib/misc/dnsmasq.leases", "r", encoding="utf-8") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 4:
+                        continue
+                    _expires, mac, ip, hostname = parts[:4]
+                    leases[mac.upper()] = {
+                        "ip": ip,
+                        "name": "" if hostname == "*" else hostname,
+                    }
+        except OSError:
+            pass
+        return leases
+
     def get_connected_devices(self) -> list[dict]:
         result = self.list_clients()
         if not result.success:
             return []
 
         macs: list[str] = result.msg if isinstance(result.msg, list) else []
+        leases = self._read_leases()
 
         devices = []
         for mac in macs:
             info_result = self.get_client_info(mac)
             info: dict = info_result.msg if isinstance(info_result.msg, dict) else {}
+
+            # Skip stations that are not fully authorized — they are stale entries
+            # from devices that recently disconnected but haven't been evicted yet
+            if "AUTHORIZED" not in info.get("flags", ""):
+                continue
+
+            mac_upper = mac.upper()
+            lease = leases.get(mac_upper, {})
             devices.append({
-                "mac": mac.upper(),
-                "ip": "",
-                "name": mac.upper(),
+                "mac": mac_upper,
+                "ip": lease.get("ip", ""),
+                "name": lease.get("name") or mac_upper,
                 "state": "connected",
                 "signal_dbm": info.get("signal_dbm", ""),
                 "connected_time": info.get("connected_time", ""),
             })
 
-        return sorted(devices, key=lambda d: d.get("mac", "").lower())
+        return sorted(devices, key=lambda d: d.get("name", "").lower())
 
     def disconnect_client(self, mac: str) -> ApiResponse:
         raw, success = self._send_cmd(f"DEAUTHENTICATE {mac}")
