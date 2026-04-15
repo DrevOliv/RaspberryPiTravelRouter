@@ -68,7 +68,32 @@ class HostapdController:
     # ------------------------------------------------------------------
 
     def write_config(self) -> ApiResponse:
-        content = str(self.hostapd_config)
+        updates = {
+            "interface": self.hostapd_config.interface,
+            "ssid": self.hostapd_config.ssid,
+            "wpa_passphrase": self.hostapd_config.wpa_passphrase,
+        }
+
+        read_result = run_command(["sudo", "cat", str(self.config_path)])
+        if read_result.success and read_result.stdout:
+            updated_keys: set[str] = set()
+            new_lines: list[str] = []
+            for line in read_result.stdout.splitlines():
+                stripped = line.strip()
+                if "=" in stripped and not stripped.startswith("#"):
+                    key = stripped.split("=", 1)[0]
+                    if key in updates:
+                        new_lines.append(f"{key}={updates[key]}")
+                        updated_keys.add(key)
+                        continue
+                new_lines.append(line)
+            for key, value in updates.items():
+                if key not in updated_keys:
+                    new_lines.append(f"{key}={value}")
+            content = "\n".join(new_lines) + "\n"
+        else:
+            content = str(self.hostapd_config)
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as f:
             f.write(content)
             tmp_path = f.name

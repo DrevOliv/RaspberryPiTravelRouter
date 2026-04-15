@@ -5,13 +5,24 @@
 ![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI-499848?logo=uvicorn&logoColor=white)
 ![License](https://img.shields.io/badge/License-CC0--1.0-lightgrey)
 
-Turn a Raspberry Pi into a portable travel router with a web UI for Wi-Fi control, private access-point management, Tailscale exit-node selection, and admin login.
+## About
 
-The private access point is managed by **hostapd** (not NetworkManager). The upstream Wi-Fi connection is managed by **nmcli**.
+RaspberryPiRouter turns a Raspberry Pi into a portable travel router with a browser-based control panel. Plug it in at a hotel or cafe, connect it to the local Wi-Fi, and all your devices join your own private network — with a consistent IP range, optional Tailscale VPN routing, and no per-device configuration.
+
+The web UI lets you:
+
+- Scan for and connect to upstream Wi-Fi networks (or use ethernet)
+- Manage your private access point — change the SSID, password, and view connected devices
+- Select a Tailscale exit node to route all AP traffic through a VPN, or disable it
+- Change the admin password and configure app settings
+
+Internally, the private AP is managed by **hostapd** (communicating directly over its UNIX control socket), while the upstream connection is handled by **nmcli**. The backend is a FastAPI app served over Uvicorn.
 
 ---
 
-## Hardware
+## Installation
+
+### Hardware
 
 - Raspberry Pi (tested on Pi 4 / Pi Zero 2W)
 - Two Wi-Fi interfaces:
@@ -22,7 +33,7 @@ A USB Wi-Fi adapter is needed for the second interface. See [`docs/Rtl8812au rpi
 
 ---
 
-## System Setup
+### System Setup
 
 Complete these steps once on the Pi before running the app.
 
@@ -253,35 +264,42 @@ sudo netfilter-persistent save
 
 ---
 
-## App Setup
+### App Setup
 
-### 1. Clone the repository
+#### 1. Create the service user
 
-```bash
-git clone git@github.com:DrevOliv/RaspberryPiRouter.git
-cd RaspberryPiRouter
-```
-
-### 2. Create a virtual environment and install dependencies
+The app runs as a dedicated `travelrouter` user. Unlike a system account, this is a regular user with a home directory and SSH access so you can log in to pull updates.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 3. Create a dedicated service user
-
-```bash
-sudo useradd --system --no-create-home --shell /usr/sbin/nologin travelrouter
+sudo useradd -m -s /bin/bash travelrouter
 
 # Allow the service user to reach the hostapd control socket
 sudo usermod -aG netdev travelrouter
 ```
 
-### 4. Install sudoers rules
+#### 2. Set up SSH access
 
-The app needs to run `nmcli`, `tailscale`, `systemctl` (for hostapd), and write the hostapd config file.
+Copy your public key so you can log in as `travelrouter` later to pull updates:
+
+```bash
+sudo mkdir -p /home/travelrouter/.ssh
+sudo cp ~/.ssh/authorized_keys /home/travelrouter/.ssh/authorized_keys
+sudo chown -R travelrouter:travelrouter /home/travelrouter/.ssh
+sudo chmod 700 /home/travelrouter/.ssh
+sudo chmod 600 /home/travelrouter/.ssh/authorized_keys
+```
+
+#### 3. Clone the repository and install dependencies
+
+```bash
+sudo -u travelrouter git clone git@github.com:DrevOliv/RaspberryPiRouter.git /home/travelrouter/RaspberryPiRouter
+sudo -u travelrouter python3 -m venv /home/travelrouter/RaspberryPiRouter/.venv
+sudo -u travelrouter /home/travelrouter/RaspberryPiRouter/.venv/bin/pip install -r /home/travelrouter/RaspberryPiRouter/requirements.txt
+```
+
+#### 4. Install sudoers rules
+
+The app needs passwordless `sudo` for `nmcli`, `tailscale`, `systemctl` (hostapd), and writing the hostapd config. The last line also lets you restart the app over SSH.
 
 ```bash
 # Detect correct binary paths
@@ -295,6 +313,7 @@ travelrouter ALL=(ALL) NOPASSWD: /usr/bin/cp
 travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hostapd
 travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hostapd
 travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart travelrouter
 EOF
 
 sudo chmod 440 /etc/sudoers.d/travelrouter
@@ -303,41 +322,12 @@ sudo chmod 440 /etc/sudoers.d/travelrouter
 sudo visudo -c
 ```
 
-### 5. Copy the app to its install location
+#### 5. Install and enable the service
+
+The repo includes `travelrouter.service` with paths hardcoded to `/home/travelrouter`. Symlink it and start:
 
 ```bash
-sudo cp -r . /opt/travelrouter
-sudo chown -R travelrouter:travelrouter /opt/travelrouter
-
-# Create the virtual environment as the service user
-sudo -u travelrouter python3 -m venv /opt/travelrouter/.venv
-sudo -u travelrouter /opt/travelrouter/.venv/bin/pip install -r /opt/travelrouter/requirements.txt
-```
-
-### 6. Create the systemd service
-
-```bash
-sudo tee /etc/systemd/system/travelrouter.service > /dev/null << 'EOF'
-[Unit]
-Description=TravelRouter Web Service
-After=network-online.target hostapd.service
-Wants=network-online.target
-
-[Service]
-Type=simple
-User=travelrouter
-Group=travelrouter
-WorkingDirectory=/opt/travelrouter
-ExecStart=/opt/travelrouter/.venv/bin/python app.py
-Restart=on-failure
-RestartSec=5
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
+sudo ln -sf /home/travelrouter/RaspberryPiRouter/travelrouter.service /etc/systemd/system/travelrouter.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now travelrouter
 ```
@@ -347,6 +337,19 @@ Check it started correctly:
 ```bash
 sudo systemctl status travelrouter
 journalctl -u travelrouter -f
+```
+
+---
+
+## Updating
+
+SSH in as `travelrouter` and pull:
+
+```bash
+ssh travelrouter@<pi-ip>
+cd ~/RaspberryPiRouter
+git pull
+sudo systemctl restart travelrouter
 ```
 
 ---
