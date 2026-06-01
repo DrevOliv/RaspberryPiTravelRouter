@@ -17,6 +17,8 @@ router = APIRouter()
     description="Launch an rsync transfer in the background. Returns immediately.",
 )
 async def api_start_job(body: StartJobRequest):
+    if not body.source.strip() or not body.destination.strip():
+        raise HTTPException(status_code=400, detail="Source and destination are required")
     job = job_manager.start(body)
     return ApiResponse(success=True, msg=job.to_info(), msg_type="json")
 
@@ -41,7 +43,7 @@ async def api_list_jobs():
     description="Stops the job if still running, then removes it from the registry.",
 )
 async def api_remove_job(job_id: str):
-    job = job_manager.remove(job_id)
+    job = await job_manager.remove(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     return ApiResponse(success=True, msg=job.to_info(), msg_type="json")
