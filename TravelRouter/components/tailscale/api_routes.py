@@ -157,14 +157,8 @@ async def api_tailscale_down():
 )
 async def api_get_accept_routes():
     result = await run_in_thread(tailscale_prefs)
-    return ApiResponse(
-        success=True,
-        msg={
-            "available": result.success,
-            "accept_routes": parse_accept_routes(result.stdout) if result.success else False,
-        },
-        msg_type="json",
-    )
+    accept = parse_accept_routes(result.stdout) if result.success else False
+    return ApiResponse(success=True, msg={"accept_routes": accept}, msg_type="json")
 
 
 @router.post(

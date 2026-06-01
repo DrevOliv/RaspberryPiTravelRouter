@@ -21,5 +21,5 @@ def tailscale_set_accept_routes(enable: bool)->CmdStatus:
     return run_command(["sudo", "tailscale", "set", f"--accept-routes={'true' if enable else 'false'}"])
 
 def tailscale_prefs()->CmdStatus:
-    return run_command(["tailscale", "debug", "prefs"])
+    return run_command(["sudo", "tailscale", "debug", "prefs"])
 

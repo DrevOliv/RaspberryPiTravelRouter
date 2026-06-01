@@ -390,10 +390,10 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 async function loadAcceptRoutes() {
   const el = document.getElementById('accept-routes-toggle');
   if (!el) return;
+  // Best-effort: reflect the current state if we can read it, but never disable
+  // the toggle — flipping it always applies.
   const r = await api('GET', '/tailscale/accept-routes');
-  const ok = r && r.success && r.msg;
-  el.disabled = !(ok && r.msg.available);
-  el.checked  = !!(ok && r.msg.accept_routes);
+  if (r && r.success && r.msg) el.checked = !!r.msg.accept_routes;
 }
 
 async function setAcceptRoutes(enable) {
