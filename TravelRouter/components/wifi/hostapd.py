@@ -1,6 +1,5 @@
 import os
 import socket
-import tempfile
 from pathlib import Path
 
 from TravelRouter.components.wifi.hostapd_config import HostapdConfig
@@ -74,11 +73,18 @@ class HostapdController:
             "wpa_passphrase": self.hostapd_config.wpa_passphrase,
         }
 
-        read_result = run_command(["sudo", "cat", str(self.config_path)])
-        if read_result.success and read_result.stdout:
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                existing = f.read()
+        except FileNotFoundError:
+            existing = ""
+        except OSError as e:
+            return ApiResponse(success=False, msg={"error": str(e)}, msg_type="json")
+
+        if existing:
             updated_keys: set[str] = set()
             new_lines: list[str] = []
-            for line in read_result.stdout.splitlines():
+            for line in existing.splitlines():
                 stripped = line.strip()
                 if "=" in stripped and not stripped.startswith("#"):
                     key = stripped.split("=", 1)[0]
@@ -94,13 +100,12 @@ class HostapdController:
         else:
             content = str(self.hostapd_config)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as f:
-            f.write(content)
-            tmp_path = f.name
-        result = run_command(["sudo", "cp", tmp_path, str(self.config_path)])
-        os.unlink(tmp_path)
-        if not result.success:
-            return ApiResponse(success=False, msg={"error": result.stderr}, msg_type="json")
+        try:
+            with open(self.config_path, "w", encoding="utf-8") as f:
+                f.write(content)
+        except OSError as e:
+            return ApiResponse(success=False, msg={"error": str(e)}, msg_type="json")
+
         return ApiResponse(success=True, msg={"written": str(self.config_path)}, msg_type="json")
 
     # ------------------------------------------------------------------
