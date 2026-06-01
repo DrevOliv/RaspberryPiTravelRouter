@@ -12,6 +12,7 @@
 # Note: this restarts NetworkManager, so run it from a console/ethernet rather
 # than over upstream Wi-Fi if you can.
 set -euo pipefail
+export LC_ALL=C   # avoid noisy locale warnings on minimal images
 
 # ── Settings (override via environment) ──────────────────────────────────────
 APP_DIR=/opt/travelrouter
@@ -31,6 +32,11 @@ AP_PASSPHRASE="${AP_PASSPHRASE:-Password123}"
 [[ $EUID -eq 0 ]] || { echo "Run as root (e.g. pipe to 'sudo bash')." >&2; exit 1; }
 
 # ── Packages ─────────────────────────────────────────────────────────────────
+# Non-interactive: iptables-persistent otherwise stops to ask whether to save
+# current rules, which would hang `curl | sudo bash`.
+export DEBIAN_FRONTEND=noninteractive
+echo "iptables-persistent iptables-persistent/autosave_v4 boolean true" | debconf-set-selections
+echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debconf-set-selections
 apt-get update -qq
 apt-get install -y -qq \
   hostapd dnsmasq network-manager iw iptables-persistent \
