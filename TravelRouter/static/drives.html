@@ -36,6 +36,10 @@
       </div>
       <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
         <div id="dest-target" style="font-size:14px;color:var(--text-sub);word-break:break-all;">Loading&#x2026;</div>
+        <div id="dest-subfolder-wrap" style="display:none;flex-direction:column;gap:6px;">
+          <label for="dest-subfolder" style="font-size:13px;color:var(--text-sub);">Target folder</label>
+          <select id="dest-subfolder" onchange="onDestSubfolderChange()"></select>
+        </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-sm btn-ghost" id="test-conn-btn" onclick="testRemote()" disabled>&#x1F50C; Test Connection</button>
           <button class="btn btn-sm btn-ghost" id="new-folder-btn" onclick="openNewFolderModal()" disabled>&#x1F4C1; New Folder</button>
@@ -297,6 +301,9 @@ function updateSelectionUI() {
 
 let rsyncConfig = { rsync_host: '', rsync_destination: '' };
 
+// Subfolder under the configured destination that transfers target ('' = root).
+let selectedDestSubfolder = '';
+
 async function loadRsyncConfig() {
   const r = await api('GET', '/settings/config');
   if (r && r.success && r.msg) {
@@ -304,25 +311,70 @@ async function loadRsyncConfig() {
     rsyncConfig.rsync_destination = r.msg.rsync_destination || '';
   }
   renderDestination();
+  if (destinationConfigured()) loadRemoteFolders();
 }
 
 function destinationConfigured() {
   return Boolean(rsyncConfig.rsync_host && rsyncConfig.rsync_destination);
 }
 
+// Full rsync destination (host:path/, plus the selected subfolder if any). A
+// trailing slash means "copy into this directory" for rsync.
+function currentDestination() {
+  const base = rsyncConfig.rsync_destination.replace(/\/+$/, '');
+  const path = selectedDestSubfolder ? `${base}/${selectedDestSubfolder}` : base;
+  return `${rsyncConfig.rsync_host}:${path}/`;
+}
+
 function renderDestination() {
   const target  = document.getElementById('dest-target');
   const testBtn = document.getElementById('test-conn-btn');
   const folderBtn = document.getElementById('new-folder-btn');
+  const subWrap = document.getElementById('dest-subfolder-wrap');
   const configured = destinationConfigured();
 
   if (target) {
     target.textContent = configured
-      ? `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`
+      ? currentDestination()
       : 'Not configured — set it in Settings first.';
   }
   if (testBtn)   testBtn.disabled   = !configured;
   if (folderBtn) folderBtn.disabled = !configured;
+  if (subWrap)   subWrap.style.display = configured ? 'flex' : 'none';
+}
+
+// Populate the target-folder dropdown from the remote destination. Pass a name
+// to pre-select it (e.g. a folder that was just created); otherwise the current
+// selection is kept if it still exists.
+async function loadRemoteFolders(selectName) {
+  const sel = document.getElementById('dest-subfolder');
+  if (!sel || !destinationConfigured()) return;
+
+  const chosen = selectName !== undefined ? selectName : selectedDestSubfolder;
+  const r = await api('GET', '/rsync/remote/folders');
+  const folders = (r && r.success && r.msg && Array.isArray(r.msg.folders)) ? r.msg.folders : [];
+
+  sel.innerHTML = '';
+  const rootOpt = document.createElement('option');
+  rootOpt.value = '';
+  rootOpt.textContent = '(destination root)';
+  sel.appendChild(rootOpt);
+  for (const name of folders) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    sel.appendChild(opt);
+  }
+
+  selectedDestSubfolder = folders.includes(chosen) ? chosen : '';
+  sel.value = selectedDestSubfolder;
+  renderDestination();
+}
+
+function onDestSubfolderChange() {
+  const sel = document.getElementById('dest-subfolder');
+  selectedDestSubfolder = sel ? sel.value : '';
+  renderDestination();
 }
 
 // ─── Remote connection test ─────────────────────────────────────────────────
@@ -379,6 +431,7 @@ async function confirmNewFolder() {
   if (r && r.success && r.msg && r.msg.path) {
     closeNewFolderModal();
     toast(`Created ${r.msg.path}`, 'success');
+    await loadRemoteFolders(r.msg.name);  // refresh the list and select the new folder
   } else {
     toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Could not create folder', 'error');
   }
@@ -724,9 +777,9 @@ function openTransferModal() {
   document.getElementById('transfer-name-input').value = selectedFolder.name;
   document.getElementById('transfer-source-text').textContent = sourceFullPath;
 
-  const hasDestination = rsyncConfig.rsync_host && rsyncConfig.rsync_destination;
+  const hasDestination = destinationConfigured();
   document.getElementById('transfer-dest-text').textContent = hasDestination
-    ? `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`
+    ? currentDestination()
     : 'Not configured \u2014 set in Settings';
   document.getElementById('transfer-no-dest').style.display = hasDestination ? 'none' : 'block';
   document.getElementById('transfer-start-btn').disabled = !hasDestination;
@@ -746,7 +799,7 @@ async function confirmTransfer() {
   if (!pendingTransfer) return;
   const jobName     = document.getElementById('transfer-name-input').value.trim() || pendingTransfer.name;
   const source      = pendingTransfer.source;   // capture before closeTransferModal nulls pendingTransfer
-  const destination = `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`;
+  const destination = currentDestination();
 
   closeTransferModal();
 

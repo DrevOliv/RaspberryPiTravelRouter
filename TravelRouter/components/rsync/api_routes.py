@@ -124,6 +124,36 @@ async def api_test_remote() -> ApiResponse:
     return ApiResponse(success=False, msg=detail or "Could not reach the destination directory")
 
 
+@router.get(
+    "/rsync/remote/folders",
+    response_model=ApiResponse,
+    tags=["rsync"],
+    summary="List folders on the backup destination",
+    description="Lists the immediate subfolders directly under the configured backup destination (no recursion).",
+)
+async def api_list_remote_folders() -> ApiResponse:
+    host, destination = _configured_destination()
+
+    # `ls -1p` lists one entry per line, appending '/' to directories, so we can
+    # filter to immediate subfolders without recursing or a second stat call.
+    # No -a, so dotfiles are hidden.
+    result = await run_in_thread(
+        run_command,
+        _ssh_command(host, f"ls -1p -- {shlex.quote(destination)}"),
+        15,
+    )
+    if not result.success:
+        detail = (result.stderr.splitlines()[0] if result.stderr else "").strip()
+        return ApiResponse(success=False, msg=detail or "Could not list folders")
+
+    folders = sorted(
+        line[:-1]
+        for line in result.stdout.splitlines()
+        if line.endswith("/") and line not in ("./", "../")
+    )
+    return ApiResponse(success=True, msg={"folders": folders}, msg_type="json")
+
+
 @router.post(
     "/rsync/remote/folder",
     response_model=ApiResponse,
