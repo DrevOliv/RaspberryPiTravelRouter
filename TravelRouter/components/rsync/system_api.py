@@ -202,10 +202,25 @@ class JobManager:
             self._emit_status("job_update", job, pid=job.pid)
 
             assert proc.stdout is not None
-            async for raw in proc.stdout:
-                text = raw.decode(errors="replace").rstrip()
-                if text:
-                    self._broadcast(job.record_output(text))
+            # rsync's --info=progress2 rewrites one line in place using carriage
+            # returns ('\r'), emitting a real '\n' only when a file/the transfer
+            # finishes. readline() (async for) splits on '\n' only, so live
+            # progress would buffer until the end. Read in chunks and treat both
+            # '\r' and '\n' as line terminators so each update is emitted live.
+            buf = b""
+            while True:
+                chunk = await proc.stdout.read(4096)
+                if not chunk:
+                    break
+                buf = (buf + chunk).replace(b"\r", b"\n")
+                while b"\n" in buf:
+                    line, buf = buf.split(b"\n", 1)
+                    text = line.decode(errors="replace").rstrip()
+                    if text:
+                        self._broadcast(job.record_output(text))
+            text = buf.decode(errors="replace").rstrip()
+            if text:
+                self._broadcast(job.record_output(text))
 
             job.exit_code = await proc.wait()
 
