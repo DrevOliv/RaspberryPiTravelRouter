@@ -23,21 +23,21 @@ The private AP is managed by **hostapd** (over its UNIX control socket), the ups
 
 ## Installation
 
-> **Prerequisite:** complete the one-time OS & network configuration in
-> [`docs/manual-setup.md`](docs/manual-setup.md) first (Wi-Fi interfaces, hostapd,
-> dnsmasq, NAT). Tailscale is optional.
-
 ### Quick install
 
-On the Pi, run:
+On a fresh Raspberry Pi OS, plug in your USB Wi-Fi adapter (the AP interface) and run as root:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DrevOliv/RaspberryPiRouter/main/deploy/install.sh | sudo bash
 ```
 
-This installs prerequisites, creates the `travelrouter` user, clones the repo to `/opt/travelrouter`, builds the virtualenv, installs the privileged hostapd helper and sudoers rules, and enables the service. Then set up SSH access (manual step 2 below) if you want to pull updates as the `travelrouter` user.
+This is the only command you need: it sets up the **full networking stack** (NetworkManager, static IP, dnsmasq, hostapd, IP forwarding, NAT) **and** installs the app + service. Override the defaults — interfaces, Wi-Fi country, subnet — with env vars (see the top of [`deploy/install.sh`](deploy/install.sh)), e.g. `AP_IFACE=wlan2 COUNTRY=SE sudo -E bash install.sh`. Run it from a console or over ethernet if you can, since it restarts NetworkManager.
 
-Open `http://<pi-ip>:8080/` and log in with the default password **`changeme`** (printed in the journal on first boot). **Change it immediately** from the Settings page.
+Tailscale is optional — [install it yourself](docs/manual-setup.md#1-install-packages) to use exit nodes.
+
+Then open `http://<pi-ip>:8080/` and log in with the default password **`changeme`** (printed in the journal on first boot). **Change it immediately** from the Settings page. To pull updates as the `travelrouter` user later, add SSH access (manual step 2 below).
+
+Prefer to set things up by hand or customize the networking beyond the script's variables? See [`docs/manual-setup.md`](docs/manual-setup.md).
 
 ### Manual install
 
@@ -172,6 +172,7 @@ Environment variables (set in `/opt/travelrouter/travelrouter.env` on the Pi, or
     └── components/                 # one package per feature, each with api_routes.py
         ├── auth/                   # session login + password hashing
         ├── settings/               # config, rsync destination, SSH key
+        ├── system/                 # diagnostics + AP start/stop
         ├── tailscale/              # exit-node + up/down control (optional)
         ├── drive/                  # USB drive discovery + mount/unmount
         ├── rsync/                  # background rsync jobs + live SSE stream + remote ops

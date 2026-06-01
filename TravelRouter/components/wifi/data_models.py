@@ -18,6 +18,11 @@ class ApSsidBody(BaseModel):
 class ApPasswordBody(BaseModel):
     ap_password: str = Field("ChangeThisPassword", description="Password used for the private travel-router access point.")
 
+
+class ApConfigBody(BaseModel):
+    config: str = Field(..., description="Full hostapd.conf contents to validate and install.")
+    country_code: str | None = Field(None, description="Optional country_code to merge into the config.")
+
 # _________________________ Live update ___________________________
 
 

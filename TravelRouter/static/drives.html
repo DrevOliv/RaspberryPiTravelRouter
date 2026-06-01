@@ -434,8 +434,6 @@ function initSSE() {
       job.exit_code   = info.exit_code;
       job.ended_at    = info.ended_at   ?? job.ended_at;
       job.started_at  = info.started_at;
-      job.attempt     = info.attempt;
-      job.retries     = info.retries;
       job.pid         = info.pid;
     } else {
       rsyncJobs.set(info.id, {
@@ -447,8 +445,6 @@ function initSSE() {
         exit_code:   info.exit_code,
         started_at:  info.started_at,
         ended_at:    info.ended_at   ?? null,
-        attempt:     info.attempt,
-        retries:     info.retries,
         pid:         info.pid,
         logs:        info.log_lines || [],
         progress:    null,
@@ -482,7 +478,6 @@ function initSSE() {
     const job  = rsyncJobs.get(data.job_id);
     if (!job) return;
     job.status    = data.status;
-    job.attempt   = data.attempt;
     job.exit_code = data.exit_code;
     job.pid       = data.pid;
     renderJobs();
@@ -493,7 +488,6 @@ function initSSE() {
     const job  = rsyncJobs.get(data.job_id);
     if (!job) return;
     job.status    = data.status;
-    job.attempt   = data.attempt;
     job.exit_code = data.exit_code;
     job.ended_at  = data.ended_at ?? null;
     job.progress  = null;
@@ -559,12 +553,6 @@ function buildJobCard(job) {
     ? job.source.replace(/\/$/, '').split('/').pop() || job.source
     : '';
 
-  // Show "attempt X/N" when the job has retries configured or is already on a retry.
-  const totalAttempts = (job.retries || 0) + 1;
-  const attemptNote   = totalAttempts > 1
-    ? `<span style="font-size:12px;color:var(--text-sub);margin-left:6px;">attempt ${job.attempt || 1}/${totalAttempts}</span>`
-    : '';
-
   const logsBtn = hasLogs
     ? `<button class="btn btn-sm ${hasError ? 'btn-danger' : 'btn-ghost'}"
          onclick="openLogModal('${job.id}')" title="View job logs">
@@ -586,7 +574,7 @@ function buildJobCard(job) {
       <div class="job-icon">&#x1F4E6;</div>
       <div class="job-info">
         <div class="job-name">${esc(job.label || job.id)}</div>
-        <div class="job-path">${esc(srcShort)} &#x2192; ${esc(job.destination || '')}${attemptNote}</div>
+        <div class="job-path">${esc(srcShort)} &#x2192; ${esc(job.destination || '')}</div>
       </div>
       <div class="job-actions">
         ${logsBtn}
@@ -765,9 +753,7 @@ async function confirmTransfer() {
   const r = await api('POST', '/rsync/jobs', {
     source,
     destination,
-    label:       jobName,
-    retries:     2,
-    retry_delay: 30,
+    label: jobName,
   });
 
   if (r && r.success) {

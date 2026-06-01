@@ -13,6 +13,28 @@ _HOSTAPD_HELPER = os.getenv("TRAVELROUTER_HOSTAPD_HELPER", "/usr/local/sbin/trav
 _HOSTAPD_STAGING = Path(os.getenv("TRAVELROUTER_HOSTAPD_STAGING", "/run/travelrouter/hostapd.conf"))
 
 
+def read_directive(config: str, key: str) -> str:
+    """Return the value of a `key=value` directive in a hostapd config, or ''."""
+    for line in config.splitlines():
+        stripped = line.strip()
+        if stripped.startswith(f"{key}=") and not stripped.startswith("#"):
+            return stripped.split("=", 1)[1]
+    return ""
+
+
+def set_directive(config: str, key: str, value: str) -> str:
+    """Set/replace a `key=value` directive, appending it if absent."""
+    lines = config.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith(f"{key}=") and not stripped.startswith("#"):
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+    return "\n".join(lines) + "\n"
+
+
 class HostapdController:
     def __init__(
         self,
@@ -100,16 +122,62 @@ class HostapdController:
 
         # Stage the new config where only the service user can write, then let the
         # privileged helper install it to the real (root-owned) hostapd path.
-        try:
-            _HOSTAPD_STAGING.parent.mkdir(parents=True, exist_ok=True)
-            _HOSTAPD_STAGING.write_text(content, encoding="utf-8")
-        except OSError as exc:
-            return ApiResponse(success=False, msg={"error": f"could not stage config: {exc}"}, msg_type="json")
+        if not self._stage(content):
+            return ApiResponse(success=False, msg={"error": "could not stage hostapd config"}, msg_type="json")
 
         result = run_command(["sudo", _HOSTAPD_HELPER, "write"])
         if not result.success:
             return ApiResponse(success=False, msg={"error": result.stderr}, msg_type="json")
         return ApiResponse(success=True, msg={"written": str(self.config_path)}, msg_type="json")
+
+    # ------------------------------------------------------------------
+    # Raw config (advanced editing)
+    # ------------------------------------------------------------------
+
+    def _stage(self, content: str) -> bool:
+        """Write `content` to the staging file the privileged helper installs from."""
+        try:
+            _HOSTAPD_STAGING.parent.mkdir(parents=True, exist_ok=True)
+            _HOSTAPD_STAGING.write_text(content, encoding="utf-8")
+            return True
+        except OSError:
+            return False
+
+    def read_raw_config(self) -> str | None:
+        result = run_command(["sudo", _HOSTAPD_HELPER, "read"])
+        return result.stdout if result.success else None
+
+    @staticmethod
+    def _hostapd_active() -> bool:
+        return run_command(["systemctl", "is-active", "hostapd"]).stdout.strip() == "active"
+
+    def apply_raw_config(self, content: str) -> ApiResponse:
+        """Validate a full hostapd.conf, install it, restart hostapd, and roll back if it fails to start."""
+        if not self._stage(content):
+            return ApiResponse(success=False, msg={"error": "could not stage hostapd config"}, msg_type="json")
+
+        check = run_command(["hostapd", "-t", "-c", str(_HOSTAPD_STAGING)])
+        if not check.success:
+            return ApiResponse(success=False, msg={"error": f"Invalid hostapd config: {check.stderr or check.stdout}"}, msg_type="json")
+
+        previous = self.read_raw_config()  # back up the still-installed config for rollback
+
+        if not run_command(["sudo", _HOSTAPD_HELPER, "write"]).success:
+            return ApiResponse(success=False, msg={"error": "could not write hostapd config"}, msg_type="json")
+
+        run_command(["sudo", "systemctl", "restart", "hostapd"])
+        if self._hostapd_active():
+            return ApiResponse(success=True, msg={"applied": True}, msg_type="json")
+
+        # hostapd didn't come back up — roll back to the previous config.
+        if previous and self._stage(previous):
+            run_command(["sudo", _HOSTAPD_HELPER, "write"])
+            run_command(["sudo", "systemctl", "restart", "hostapd"])
+        return ApiResponse(
+            success=False,
+            msg={"error": "hostapd failed to start with that config — reverted to the previous one."},
+            msg_type="json",
+        )
 
     # ------------------------------------------------------------------
     # Credentials

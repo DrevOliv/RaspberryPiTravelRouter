@@ -1,9 +1,10 @@
 # Manual Pi Setup
 
-One-time operating-system and network configuration for the Raspberry Pi. Do
-this **once** before installing the app (see the [README](../README.md) for the
-app install). It is intentionally kept out of the README because it's hardware-
-and network-specific, not something you repeat when developing or updating.
+The [quick-install script](../deploy/install.sh) performs **all** of this
+automatically, driven by the variables at the top of the script
+(`AP_IFACE`, `UPSTREAM_IFACE`, `AP_IP`, `COUNTRY`, …). This document is the
+reference for what it does — and the route to take if you'd rather configure the
+networking by hand, or customize it beyond those variables.
 
 ## Hardware
 

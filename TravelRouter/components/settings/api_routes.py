@@ -7,9 +7,11 @@ from fastapi import APIRouter
 from TravelRouter.components.settings.data_models import (
     SetRsyncDestinationRequest,
     SettingsConfigResponse,
+    SettingsImport,
     SshKeyResponse,
 )
 from TravelRouter.config_file import DataManager
+from TravelRouter.config_file.data_models import DataModels
 from TravelRouter.helpers.api_response import ApiResponse
 from TravelRouter.helpers.run_command import CmdStatus, run_command, run_in_thread
 
@@ -156,3 +158,51 @@ async def api_generate_ssh_key() -> ApiResponse:
         return ApiResponse(success=False, msg=result.stderr or "Could not generate SSH key")
 
     return ApiResponse(success=True, msg=await run_in_thread(_read_ssh_key), msg_type="json")
+
+
+@router.get(
+    "/settings/export",
+    response_model=ApiResponse,
+    tags=["settings"],
+    summary="Export settings",
+    description="Returns the current settings (Wi-Fi/AP, Tailscale, backup destination). The login password is never included.",
+)
+async def api_export_settings() -> ApiResponse:
+    data = data_manager.get_data()
+    return ApiResponse(success=True, msg=data.model_dump(exclude={"auth"}), msg_type="json")
+
+
+@router.post(
+    "/settings/import",
+    response_model=ApiResponse,
+    tags=["settings"],
+    summary="Import settings",
+    description="Replaces the provided settings sections. The login password is preserved.",
+)
+async def api_import_settings(body: SettingsImport) -> ApiResponse:
+    data = data_manager.get_data()
+    if body.wifi is not None:
+        data.wifi = body.wifi
+    if body.tailscale is not None:
+        data.tailscale = body.tailscale
+    if body.rsync is not None:
+        data.rsync = body.rsync
+    data_manager.set_data(data)  # auth is untouched
+    return ApiResponse(success=True, msg="Settings imported — restart the service to apply AP/interface changes.")
+
+
+@router.post(
+    "/settings/reset",
+    response_model=ApiResponse,
+    tags=["settings"],
+    summary="Reset settings",
+    description="Resets settings to defaults. The login password is kept.",
+)
+async def api_reset_settings() -> ApiResponse:
+    defaults = DataModels()
+    data = data_manager.get_data()
+    data.wifi = defaults.wifi
+    data.tailscale = defaults.tailscale
+    data.rsync = defaults.rsync
+    data_manager.set_data(data)  # auth is untouched
+    return ApiResponse(success=True, msg="Settings reset to defaults (login password unchanged).")
