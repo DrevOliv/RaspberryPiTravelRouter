@@ -551,6 +551,25 @@ function renderDevices(devices) {
 // ─── UI: Tailscale ───────────────────────────────────────────────────────────
 
 function updateTsUI(s) {
+  if (s && s.available === false) {
+    // Tailscale isn't installed/responding on the device — show it greyed out.
+    document.getElementById('ts-dot').className        = 'dot';
+    document.getElementById('ts-chip-val').textContent = 'Unavailable';
+    const state = document.getElementById('ts-state');
+    state.textContent = 'Unavailable';
+    state.style.color  = 'var(--text-sub)';
+    document.getElementById('ts-node-label').textContent = 'Tailscale is not installed on this device';
+    const tsBtn = document.getElementById('ts-toggle-btn');
+    tsBtn.disabled    = true;
+    tsBtn.textContent = 'Unavailable';
+    tsBtn.className    = 'btn btn-sm btn-secondary';
+    const exitToggle = document.getElementById('exit-toggle');
+    if (exitToggle) exitToggle.disabled = true;
+    const exitSub = document.getElementById('exit-node-sub');
+    if (exitSub) exitSub.textContent = 'Tailscale is not installed';
+    return;
+  }
+
   document.getElementById('ts-dot').className        = 'dot ' + (s.online ? 'green' : 'red');
   document.getElementById('ts-chip-val').textContent = s.online ? 'Online' : 'Offline';
 

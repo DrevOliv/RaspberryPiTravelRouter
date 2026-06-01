@@ -1,19 +1,19 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from TravelRouter.components.auth import auth_api
+from TravelRouter.components.auth import auth_api, require_api_auth
 from TravelRouter.components.auth.auth import AuthManager
 from TravelRouter.components.drive import router as drive_router
 from TravelRouter.components.rsync import router as rsync_router
-from TravelRouter.components.rsync.api_stream import signal_shutdown
 from TravelRouter.components.rsync.system_api import job_manager
 from TravelRouter.components.settings import router as settings_router
+from TravelRouter.components.system import router as system_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
 from TravelRouter.config_file import DataManager
@@ -101,8 +101,7 @@ async def lifespan(_: FastAPI):
     try:
         yield
     finally:
-        signal_shutdown()
-        job_manager.stop_all()
+        await job_manager.shutdown()
 
 
 def create_app() -> FastAPI:
@@ -119,13 +118,19 @@ def create_app() -> FastAPI:
 
     app.state.auth_manager = auth_manager
 
+    # Login/logout must stay public; every other API router requires an
+    # authenticated session. Enforcing it here keeps new routes protected by
+    # default instead of relying on each route to remember the dependency.
+    auth_required = [Depends(require_api_auth)]
+
     app.include_router(_pages_router)
     app.include_router(auth_api)
-    app.include_router(drive_router)
-    app.include_router(rsync_router)
-    app.include_router(settings_router)
-    app.include_router(tailscale_router)
-    app.include_router(wifi_router)
+    app.include_router(drive_router, dependencies=auth_required)
+    app.include_router(rsync_router, dependencies=auth_required)
+    app.include_router(settings_router, dependencies=auth_required)
+    app.include_router(system_router, dependencies=auth_required)
+    app.include_router(tailscale_router, dependencies=auth_required)
+    app.include_router(wifi_router, dependencies=auth_required)
     register_exception_handlers(app)
 
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")

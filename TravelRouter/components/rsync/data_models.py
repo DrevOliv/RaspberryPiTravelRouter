@@ -17,6 +17,10 @@ class StartJobRequest(BaseModel):
     label:       str | None = Field(None, description="Human-readable job name")
 
 
+class CreateRemoteFolderRequest(BaseModel):
+    name: str = Field(..., description="New folder name to create under the backup destination")
+
+
 class RsyncProgress(BaseModel):
     bytes:   int
     percent: int

@@ -20,6 +20,4 @@ def build_api_response_json(msg: Any = None, success: bool = True) -> ApiRespons
 
 
 def dump_api_response(response: ApiResponse) -> dict[str, Any]:
-    if hasattr(response, "model_dump"):
-        return response.model_dump()
-    return response.dict()
+    return response.model_dump()

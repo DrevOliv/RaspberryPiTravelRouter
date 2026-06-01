@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from TravelRouter.helpers.run_command import run_command, CmdStatus
 
 # __________________________ WiFi connection __________________________
@@ -34,3 +36,11 @@ def get_connected_network(interface: str, eth_interface: str = "eth0") -> CmdSta
     result = run_command(["nmcli", "-t", "-g", "GENERAL.STATE,GENERAL.CONNECTION", "device", "show", interface])
     result.stdout = f"{result.stdout}{_SEP}{_read_operstate(interface)}{_SEP}{_read_operstate(eth_interface)}"
     return result
+
+
+def list_wifi_interfaces() -> list[str]:
+    """Wireless interface names from sysfs (those backed by a phy80211 device)."""
+    net = Path("/sys/class/net")
+    if not net.exists():
+        return []
+    return sorted(p.name for p in net.iterdir() if (p / "phy80211").exists())

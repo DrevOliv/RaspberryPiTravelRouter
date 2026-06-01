@@ -1,0 +1,16 @@
+# TravelRouter passwordless sudo grants.
+# Install to /etc/sudoers.d/travelrouter (mode 0440), then validate with `visudo -c`.
+#
+# Replace NMCLI / TAILSCALE paths if `which nmcli` / `which tailscale` differ on
+# your system. Keep each path absolute — sudoers requires it.
+#
+# These are the app's intended capabilities. nmcli/tailscale/mount are broad by
+# nature; the hostapd config write is locked to the travelrouter-hostapd helper
+# instead of a blanket `cp`.
+
+travelrouter ALL=(root) NOPASSWD: /usr/bin/nmcli
+travelrouter ALL=(root) NOPASSWD: /usr/bin/tailscale
+travelrouter ALL=(root) NOPASSWD: /usr/bin/mount, /usr/bin/umount
+travelrouter ALL=(root) NOPASSWD: /usr/bin/systemctl start hostapd, /usr/bin/systemctl stop hostapd, /usr/bin/systemctl restart hostapd
+travelrouter ALL=(root) NOPASSWD: /usr/bin/systemctl restart travelrouter
+travelrouter ALL=(root) NOPASSWD: /usr/local/sbin/travelrouter-hostapd read, /usr/local/sbin/travelrouter-hostapd write

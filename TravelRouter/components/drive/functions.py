@@ -121,6 +121,33 @@ def find_device_mount_point(device: str) -> str | None:
     return None
 
 
+def list_mounted_drives() -> list[dict]:
+    """Drives currently mounted under MOUNT_BASE, as {label, mount_point}."""
+    base = os.path.realpath(MOUNT_BASE)
+    mounts_file = Path("/proc/self/mounts")
+    if not mounts_file.exists():
+        return []
+
+    drives: list[dict] = []
+    seen: set[str] = set()
+    with mounts_file.open("r", encoding="utf-8") as mounts:
+        for line in mounts:
+            fields = line.split()
+            if len(fields) < 2:
+                continue
+            mount_point = os.path.realpath(fields[1].replace("\\040", " "))
+            if mount_point == base or mount_point in seen:
+                continue
+            try:
+                inside = os.path.commonpath([base, mount_point]) == base
+            except ValueError:
+                inside = False
+            if inside:
+                seen.add(mount_point)
+                drives.append({"label": os.path.basename(mount_point), "mount_point": mount_point})
+    return drives
+
+
 def scan_dir(abs_path: str) -> Dirs:
     safe_path = resolve_mount_path(abs_path)
     entries = []

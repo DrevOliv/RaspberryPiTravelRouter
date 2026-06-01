@@ -6,6 +6,7 @@ from TravelRouter.helpers.run_command import run_in_thread
 
 from TravelRouter.components.tailscale.data_models import (
     ExitNodeSelectionBody,
+    TailscaleStatus,
 )
 
 from TravelRouter.components.tailscale.functions import parse_tailscale_status
@@ -27,11 +28,21 @@ data_manager = DataManager()
 async def get_tailscale_status() -> ApiResponse:
     status = await run_in_thread(tailscale_status)
     if not status.success:
-        return ApiResponse(msg=f"error getting tailscale status: {status.stderr}")
+        # Tailscale is optional: if the CLI is missing or not responding, report it
+        # as unavailable so the UI can grey it out instead of showing an error.
+        return ApiResponse(
+            success=True,
+            msg=TailscaleStatus(
+                available=False,
+                online=False,
+                exit_node=False,
+                exit_node_server=None,
+                exit_node_servers=[],
+            ),
+            msg_type="json",
+        )
 
-    data_response = parse_tailscale_status(status.stdout)
-
-    return ApiResponse(success=True, msg=data_response, msg_type="json")
+    return ApiResponse(success=True, msg=parse_tailscale_status(status.stdout), msg_type="json")
 
 
 @router.get(

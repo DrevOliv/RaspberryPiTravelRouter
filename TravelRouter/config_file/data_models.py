@@ -8,10 +8,8 @@ class AuthData(BaseModel):
 
 
 class WifiData(BaseModel):
-    wifi_ssid: str = "ChangeMe"
-    wifi_password: str = "ChangeMe"
-    upstream_interface: str = "wlan0"
-    ap_interface: str = "wlan1"
+    upstream_interface: str = "wlan0"  # joins upstream Wi-Fi (nmcli)
+    ap_interface: str = "wlan1"        # broadcasts the private AP (hostapd)
     ap_password: str = "Password123"
     ap_ssid: str = "RouterPi"
 

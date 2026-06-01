@@ -2,36 +2,18 @@ import json
 import os
 from pathlib import Path
 from threading import Lock
-from typing import TypeVar
-
-from pydantic import BaseModel
 
 from TravelRouter.config_file.data_models import DataModels
 
-DEFAULT_DATA_PATH = Path("./data/data.json")
-
-ModelType = TypeVar("ModelType", bound=BaseModel)
-
-
-def _model_dump(model: BaseModel) -> dict:
-    if hasattr(model, "model_dump"):
-        return model.model_dump()
-    return model.dict()
-
-
-def _model_validate(model_type: type[ModelType], payload: dict) -> ModelType:
-    if hasattr(model_type, "model_validate"):
-        return model_type.model_validate(payload)
-    return model_type.parse_obj(payload)
-
-
-def _model_copy(model: ModelType) -> ModelType:
-    if hasattr(model, "model_copy"):
-        return model.model_copy(deep=True)
-    return model.copy(deep=True)
+# Anchor to the repo root (<repo>/data/data.json) so the path does not depend
+# on the process working directory.
+DEFAULT_DATA_PATH = Path(__file__).resolve().parents[2] / "data" / "data.json"
 
 
 class DataManager:
+    # Singleton: constructor arguments (data_path) are only honoured on the
+    # first instantiation. Call reset_instance() before re-constructing with a
+    # different path, e.g. in tests.
     _instance = None
     _instance_lock = Lock()
 
@@ -60,11 +42,11 @@ class DataManager:
 
     def get_data(self) -> DataModels:
         with self._lock:
-            return _model_copy(self._data)
+            return self._data.model_copy(deep=True)
 
     def set_data(self, data: DataModels) -> None:
         with self._lock:
-            self._data = _model_copy(data)
+            self._data = data.model_copy(deep=True)
             self._write_data()
 
     def _load_data(self) -> DataModels:
@@ -77,10 +59,10 @@ class DataManager:
         except (OSError, json.JSONDecodeError) as exc:
             raise RuntimeError(f"Invalid data file at {self.data_path}") from exc
 
-        return _model_validate(DataModels, payload)
+        return DataModels.model_validate(payload)
 
     def _write_data(self) -> None:
-        payload = json.dumps(_model_dump(self._data), indent=2) + "\n"
+        payload = json.dumps(self._data.model_dump(), indent=2) + "\n"
         temp_path = self.data_path.with_suffix(f"{self.data_path.suffix}.tmp")
         temp_path.write_text(payload, encoding="utf-8")
         temp_path.replace(self.data_path)

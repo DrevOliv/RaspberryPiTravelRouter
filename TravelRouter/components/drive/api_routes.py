@@ -10,6 +10,7 @@ from TravelRouter.components.drive.data_models import FolderRequest, MountPoint,
 from TravelRouter.components.drive.functions import (
     delete_dir,
     find_device_mount_point,
+    list_mounted_drives,
     make_dirs,
     parse_lsblk,
     resolve_folder_path,
@@ -43,6 +44,18 @@ async def api_get_available_drives():
         return ApiResponse(msg="error parsing connected drives output")
 
     return ApiResponse(success=True, msg=drives, msg_type="json")
+
+
+@router.get(
+    "/drive/mounted_drives",
+    response_model=ApiResponse,
+    tags=["drive"],
+    summary="List mounted drives",
+    description="Returns drives currently mounted under the travel-router mount base.",
+)
+async def api_get_mounted_drives():
+    drives = await run_in_thread(list_mounted_drives)
+    return ApiResponse(success=True, msg={"drives": drives}, msg_type="json")
 
 
 @router.post(

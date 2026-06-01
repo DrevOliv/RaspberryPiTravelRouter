@@ -56,6 +56,80 @@
       </div>
     </div>
 
+    <!-- ── Network Interfaces ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F50C;</span> Network Interfaces</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Which adapter does what</div>
+        <div class="form-gap">
+          <p class="hint">Pick which wireless interface joins upstream Wi-Fi and which broadcasts the access point. Saved immediately; restart the service (or reboot) to apply — and make sure the AP interface matches your system setup.</p>
+          <div class="field-row">
+            <div class="field">
+              <label for="upstream-iface">Upstream (internet)</label>
+              <select id="upstream-iface"><option value="">&#x2014; Loading&#x2026; &#x2014;</option></select>
+            </div>
+            <div class="field">
+              <label for="ap-iface">Access point</label>
+              <select id="ap-iface"><option value="">&#x2014; Loading&#x2026; &#x2014;</option></select>
+            </div>
+          </div>
+          <div>
+            <button class="btn btn-primary" id="save-iface-btn" onclick="saveInterfaces()">Save Interfaces</button>
+          </div>
+          <div id="iface-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Access Point Config (advanced) ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F6E0;&#xFE0F;</span> Access Point Config</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">hostapd.conf</div>
+        <div class="form-gap">
+          <p class="hint">Advanced: edit the raw hostapd config to suit your adapter (band, channel, driver, etc.). It's validated before applying and reverted automatically if the access point fails to start.</p>
+          <div class="field">
+            <label for="ap-country">Country code</label>
+            <input type="text" id="ap-country" placeholder="e.g. SE" maxlength="2" autocomplete="off" style="text-transform:uppercase;">
+          </div>
+          <div class="field">
+            <label for="ap-config">hostapd.conf</label>
+            <textarea id="ap-config" rows="12" spellcheck="false" style="width:100%;font-family:monospace;font-size:12px;resize:vertical;white-space:pre;"></textarea>
+          </div>
+          <div>
+            <button class="btn btn-primary" id="save-ap-config-btn" onclick="saveApConfig()">Validate &amp; Apply</button>
+          </div>
+          <div id="ap-config-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── System ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F4CA;</span> System</div>
+        <button class="btn btn-sm btn-ghost" onclick="loadDiagnostics()">Refresh</button>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Access point</div>
+        <div class="form-gap">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-primary" id="ap-start-btn" onclick="apControl('start')">Start AP</button>
+            <button class="btn btn-sm btn-danger" id="ap-stop-btn" onclick="apControl('stop')">Stop AP</button>
+          </div>
+          <div id="ap-control-status"></div>
+        </div>
+        <div class="section-title">Diagnostics</div>
+        <div class="form-gap">
+          <div id="diagnostics"><p class="hint">Loading&#x2026;</p></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Tailscale ── -->
     <div class="card">
       <div class="card-head">
@@ -109,6 +183,23 @@
       </div>
     </div>
 
+    <!-- ── Backup SSH Key ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F511;</span> Backup SSH Key</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">This device's public key</div>
+        <div class="form-gap">
+          <p class="hint">This device uses an SSH key to send files to your backup server. Copy the public key below and add it to the server's <code>~/.ssh/authorized_keys</code>.</p>
+          <div id="ssh-key-area">
+            <p class="hint" id="ssh-key-loading">Loading&#x2026;</p>
+          </div>
+          <div id="ssh-status"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Password ── -->
     <div class="card">
       <div class="card-head">
@@ -136,6 +227,26 @@
             <button class="btn btn-primary" id="save-pw-btn" onclick="changePassword()">Change Password</button>
           </div>
           <div id="pw-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Advanced ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F9F0;</span> Advanced</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">Backup &amp; restore settings</div>
+        <div class="form-gap">
+          <p class="hint">Export your settings (Wi-Fi/AP, Tailscale, backup destination) to a file, or restore from one. Your login password is never exported, and is kept on import/reset.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-ghost" onclick="exportSettings()">Export</button>
+            <button class="btn btn-sm btn-ghost" onclick="document.getElementById('import-file').click()">Import</button>
+            <input type="file" id="import-file" accept="application/json,.json" style="display:none;" onchange="importSettings(event)">
+            <button class="btn btn-sm btn-danger" onclick="resetSettings()">Reset to defaults</button>
+          </div>
+          <div id="advanced-status"></div>
         </div>
       </div>
     </div>
@@ -281,6 +392,12 @@ async function loadExitNodes() {
   }
 
   const status  = tsRes.msg;
+
+  if (status.available === false) {
+    hint.textContent = 'Tailscale is not installed on this device.';
+    return;
+  }
+
   const nodes   = status.exit_node_servers || [];
   // Saved preference takes priority; fall back to the currently active node
   const savedNode = (cfgRes && cfgRes.success && cfgRes.msg.exit_node) || status.exit_node_server || '';
@@ -482,6 +599,230 @@ async function loadCurrentSettings() {
   if (s.rsync_destination) document.getElementById('rsync-dest').value = s.rsync_destination;
 }
 
+// ─── Network interfaces ──────────────────────────────────────────────────────
+
+async function loadInterfaces() {
+  const r = await api('GET', '/wifi/interfaces');
+  if (!r || !r.success || !r.msg) return;
+  fillInterfaceSelect('upstream-iface', r.msg.interfaces || [], r.msg.upstream_interface);
+  fillInterfaceSelect('ap-iface', r.msg.interfaces || [], r.msg.ap_interface);
+}
+
+function fillInterfaceSelect(id, interfaces, selected) {
+  const sel = document.getElementById(id);
+  if (!sel) return;
+  // Keep the saved value selectable even if its adapter isn't present right now.
+  const options = (selected && !interfaces.includes(selected)) ? [...interfaces, selected] : interfaces;
+  sel.innerHTML = '';
+  if (!options.length) { sel.innerHTML = '<option value="">No interfaces found</option>'; return; }
+  options.forEach(name => {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    if (name === selected) opt.selected = true;
+    sel.appendChild(opt);
+  });
+}
+
+async function saveInterfaces() {
+  const upstream_interface = document.getElementById('upstream-iface').value;
+  const ap_interface       = document.getElementById('ap-iface').value;
+  if (!upstream_interface || !ap_interface) { setStatus('iface-status', 'Pick both interfaces.', false); return; }
+  if (upstream_interface === ap_interface)  { setStatus('iface-status', 'Upstream and AP must be different interfaces.', false); return; }
+
+  setBusy('save-iface-btn', true, 'Save Interfaces');
+  const r = await api('POST', '/settings/wifi', { upstream_interface, ap_interface });
+  setBusy('save-iface-btn', false, 'Save Interfaces');
+  setStatus('iface-status', r && r.success ? 'Saved — restart the service to apply.' : 'Could not save interfaces.', !!(r && r.success));
+}
+
+// ─── System: diagnostics + AP on/off ─────────────────────────────────────────
+
+async function loadDiagnostics() {
+  const r = await api('GET', '/system/diagnostics');
+  const el = document.getElementById('diagnostics');
+  if (!el) return;
+  if (!r || !r.success || !r.msg) { el.textContent = 'Could not load diagnostics.'; return; }
+  renderDiagnostics(el, r.msg);
+}
+
+function renderDiagnostics(el, d) {
+  const row = (label, ok, detail) => {
+    const div = document.createElement('div');
+    div.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:13px;padding:3px 0;';
+    const dot = document.createElement('span');
+    dot.style.cssText = `width:9px;height:9px;border-radius:50%;flex-shrink:0;background:var(--${ok ? 'green' : 'red'});`;
+    const txt = document.createElement('span');
+    txt.textContent = detail ? `${label} — ${detail}` : label;
+    div.append(dot, txt);
+    return div;
+  };
+  const iface = i => `${i.state}${i.addresses.length ? ' · ' + i.addresses.join(', ') : ''}`;
+
+  el.innerHTML = '';
+  el.append(
+    row('hostapd', d.services.hostapd, d.services.hostapd ? 'running' : 'stopped'),
+    row('dnsmasq', d.services.dnsmasq, d.services.dnsmasq ? 'running' : 'stopped'),
+    row('IP forwarding', d.ip_forwarding, d.ip_forwarding ? 'on' : 'off'),
+    row(`AP (${d.ap_interface.name})`, d.ap_interface.state === 'up', iface(d.ap_interface)),
+    row(`Upstream (${d.upstream_interface.name})`, d.upstream_interface.state === 'up', iface(d.upstream_interface)),
+  );
+}
+
+async function apControl(action) {
+  const btnId = action === 'start' ? 'ap-start-btn' : 'ap-stop-btn';
+  const label = action === 'start' ? 'Start AP' : 'Stop AP';
+  setBusy(btnId, true, label);
+  const r = await api('POST', `/wifi/ap/${action}`);
+  setBusy(btnId, false, label);
+  setStatus('ap-control-status', r && r.success ? `Access point ${action}ed.` : `Could not ${action} the access point.`, !!(r && r.success));
+  void loadDiagnostics();
+}
+
+// ─── Access Point config (raw hostapd.conf) ──────────────────────────────────
+
+async function loadApConfig() {
+  const r = await api('GET', '/wifi/ap/config');
+  if (r && r.success && r.msg) {
+    document.getElementById('ap-config').value  = r.msg.config || '';
+    document.getElementById('ap-country').value = r.msg.country_code || '';
+  } else {
+    setStatus('ap-config-status', 'Could not read hostapd config.', false);
+  }
+}
+
+async function saveApConfig() {
+  const config  = document.getElementById('ap-config').value;
+  const country = document.getElementById('ap-country').value.trim().toUpperCase();
+  if (!config.trim()) { setStatus('ap-config-status', 'Config cannot be empty.', false); return; }
+
+  setBusy('save-ap-config-btn', true, 'Validate &amp; Apply');
+  const r = await api('POST', '/wifi/ap/config', { config, country_code: country || null });
+  setBusy('save-ap-config-btn', false, 'Validate &amp; Apply');
+
+  if (r && r.success) {
+    setStatus('ap-config-status', 'Applied — access point restarted.', true);
+    void loadApConfig();
+  } else {
+    const msg = (r && r.msg && (typeof r.msg === 'string' ? r.msg : r.msg.error)) || 'Could not apply config';
+    setStatus('ap-config-status', msg, false);
+  }
+}
+
+// ─── Advanced: export / import / reset settings ──────────────────────────────
+
+async function exportSettings() {
+  const r = await api('GET', '/settings/export');
+  if (!r || !r.success || !r.msg) { setStatus('advanced-status', 'Could not export settings.', false); return; }
+  const blob = new Blob([JSON.stringify(r.msg, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'travelrouter-settings.json';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  setStatus('advanced-status', 'Settings exported.', true);
+}
+
+async function importSettings(event) {
+  const file = event.target.files[0];
+  event.target.value = '';   // allow re-importing the same file
+  if (!file) return;
+
+  let payload;
+  try {
+    payload = JSON.parse(await file.text());
+  } catch {
+    setStatus('advanced-status', 'That file is not valid JSON.', false);
+    return;
+  }
+
+  const r = await api('POST', '/settings/import', payload);
+  if (r && r.success) {
+    setStatus('advanced-status', (typeof r.msg === 'string' ? r.msg : null) || 'Settings imported.', true);
+    void loadCurrentSettings();
+    void loadApConfig();
+  } else {
+    setStatus('advanced-status', 'Import failed — check the file format.', false);
+  }
+}
+
+async function resetSettings() {
+  if (!confirm('Reset all settings to defaults? Your login password is kept.')) return;
+  const r = await api('POST', '/settings/reset');
+  if (r && r.success) {
+    setStatus('advanced-status', (typeof r.msg === 'string' ? r.msg : null) || 'Settings reset.', true);
+    void loadCurrentSettings();
+  } else {
+    setStatus('advanced-status', 'Reset failed.', false);
+  }
+}
+
+// ─── Backup SSH key ──────────────────────────────────────────────────────────
+
+async function loadSshKey() {
+  const r = await api('GET', '/settings/ssh-key');
+  renderSshKey(r && r.success ? r.msg : null);
+}
+
+function renderSshKey(info) {
+  const area = document.getElementById('ssh-key-area');
+  if (!area) return;
+
+  if (!info) {
+    area.textContent = 'Could not load SSH key status.';
+    return;
+  }
+
+  if (!info.exists) {
+    area.innerHTML =
+      '<p class="hint">No SSH key on this device yet.</p>' +
+      '<button class="btn btn-primary" id="gen-ssh-btn" onclick="generateSshKey()">Create SSH Key</button>';
+    return;
+  }
+
+  // Build structure, then set untrusted values via .value / .textContent (no HTML injection).
+  area.innerHTML = `
+    <div class="field">
+      <label for="ssh-pub">Public key</label>
+      <textarea id="ssh-pub" readonly rows="3"
+        style="width:100%;font-family:monospace;font-size:12px;resize:vertical;word-break:break-all;"></textarea>
+    </div>
+    <p class="hint" id="ssh-fp"></p>
+    <div>
+      <button class="btn btn-ghost" id="copy-ssh-btn" onclick="copySshKey()">Copy public key</button>
+    </div>`;
+  document.getElementById('ssh-pub').value = info.public_key || '';
+  document.getElementById('ssh-fp').textContent = info.fingerprint || '';
+}
+
+async function generateSshKey() {
+  setBusy('gen-ssh-btn', true, 'Create SSH Key');
+  const r = await api('POST', '/settings/ssh-key/generate');
+  if (r && r.success && r.msg) {
+    renderSshKey(r.msg);
+    setStatus('ssh-status', 'SSH key ready — copy the public key to your server.', true);
+  } else {
+    setStatus('ssh-status', (r && typeof r.msg === 'string' ? r.msg : null) || 'Could not create key', false);
+    const btn = document.getElementById('gen-ssh-btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Create SSH Key'; }
+  }
+}
+
+async function copySshKey() {
+  const ta = document.getElementById('ssh-pub');
+  if (!ta) return;
+  try {
+    await navigator.clipboard.writeText(ta.value);
+  } catch {
+    ta.select();
+    document.execCommand('copy');
+  }
+  toast('Public key copied', 'success');
+}
+
 // ─── Health check ────────────────────────────────────────────────────────────
 
 let healthTimer = null;
@@ -511,7 +852,11 @@ function startSettingsPage() {
 
   void checkAuth();
   void loadCurrentSettings();
+  void loadInterfaces();
+  void loadApConfig();
+  void loadDiagnostics();
   void loadExitNodes();
+  void loadSshKey();
   void checkHealth();
 
   if (healthTimer === null) {

@@ -44,8 +44,11 @@ def run_command(command: list[str], timeout: int = 20) -> CmdStatus:
     stdout = completed.stdout.strip()
     stderr = completed.stderr.strip()
 
+    # Success is determined by the exit code alone. Tools like nmcli, tailscale
+    # and rsync routinely write warnings/notices to stderr while still exiting 0,
+    # so treating any stderr as failure produces spurious errors.
     return CmdStatus(
-        success=completed.returncode == 0 and not stderr,
+        success=completed.returncode == 0,
         stdout=stdout,
         stderr=stderr,
         command=" ".join(shlex.quote(part) for part in command)
