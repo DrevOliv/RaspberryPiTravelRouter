@@ -49,6 +49,11 @@ apt-get install -y -qq \
 id "$APP_USER" &>/dev/null || useradd -m -s /bin/bash "$APP_USER"
 usermod -aG netdev "$APP_USER"   # reach the hostapd control socket
 
+# Mount base for USB drives. The app creates per-drive subdirs here as the
+# unprivileged service user, so the base must exist and be owned by it —
+# otherwise mounting fails with "Permission denied: '/mnt/drives'".
+install -d -o "$APP_USER" -g "$APP_USER" -m 755 /mnt/drives
+
 # ── NetworkManager: manage upstream, leave the AP interface to hostapd ───────
 systemctl enable --now NetworkManager
 mkdir -p /etc/NetworkManager/conf.d
@@ -57,6 +62,17 @@ cat > /etc/NetworkManager/conf.d/unmanaged.conf <<EOF
 unmanaged-devices=interface-name:${AP_IFACE}
 EOF
 systemctl restart NetworkManager
+
+# ── Enable the upstream Wi-Fi radio ──────────────────────────────────────────
+# Fresh Raspberry Pi OS ships with Wi-Fi rfkill soft-blocked until a regulatory
+# country is set, and NetworkManager then reports `nmcli radio wifi` as disabled
+# — so wlan0 never comes up and scans return nothing. Set the country, clear the
+# block, and turn the radio on so the upstream interface is usable immediately.
+if [[ -n "$COUNTRY" && "$COUNTRY" != "00" ]]; then
+  raspi-config nonint do_wifi_country "$COUNTRY" 2>/dev/null || iw reg set "$COUNTRY" 2>/dev/null || true
+fi
+rfkill unblock wlan 2>/dev/null || true
+nmcli radio wifi on 2>/dev/null || true
 
 # ── Static IP on the AP interface (brought up before hostapd) ────────────────
 cat > /etc/systemd/system/wlan-static-ip.service <<EOF

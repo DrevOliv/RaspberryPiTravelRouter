@@ -48,6 +48,7 @@ The app runs as a dedicated `travelrouter` user, with code in `/opt/travelrouter
 ```bash
 sudo useradd -m -s /bin/bash travelrouter
 sudo usermod -aG netdev travelrouter   # reach the hostapd control socket
+sudo install -d -o travelrouter -g travelrouter -m 755 /mnt/drives   # USB mount base
 ```
 
 **2. Set up SSH access** (so you can log in to pull updates)
@@ -100,6 +101,46 @@ sudo systemctl status travelrouter
 ```
 
 After installing, work through [`TESTING.md`](TESTING.md) to verify each feature on the Pi.
+
+---
+
+## Troubleshooting
+
+### No upstream Wi-Fi networks appear / `wlan0` is down
+
+If the UI shows no available networks and `ip a wlan0` reports `state DOWN`, the upstream Wi-Fi radio is software-disabled:
+
+```bash
+nmcli radio wifi     # likely prints: disabled
+```
+
+Fresh Raspberry Pi OS images ship with Wi-Fi **rfkill soft-blocked until a regulatory country is set** (a legal requirement for the radio). While blocked, NetworkManager reports the radio as `disabled`, so `wlan0` never comes up and scans return nothing. Fix it with:
+
+```bash
+sudo raspi-config nonint do_wifi_country SE   # your 2-letter country code
+sudo rfkill unblock wlan
+sudo nmcli radio wifi on
+```
+
+Then confirm and re-scan:
+
+```bash
+nmcli radio wifi                                                  # → enabled
+ip a wlan0                                                        # no longer DOWN
+nmcli -t -f SSID,SIGNAL device wifi list ifname wlan0 --rescan yes
+```
+
+Once the radio is enabled, refresh the UI and the networks will appear. The quick-install script now does this automatically (using the `COUNTRY` variable), so this is only needed on installs from before that change or on manual setups.
+
+### Mounting a drive fails with `Permission denied: '/mnt/drives'`
+
+The app runs as the unprivileged `travelrouter` user and creates each drive's mount-point directory under `/mnt/drives` itself (only the `mount`/`umount` calls use sudo). If that base directory doesn't exist or is owned by root, the directory creation fails. Create it once, owned by the service user:
+
+```bash
+sudo install -d -o travelrouter -g travelrouter -m 755 /mnt/drives
+```
+
+The quick-install script now does this automatically, so this is only needed on installs from before that change or on manual setups.
 
 ---
 
