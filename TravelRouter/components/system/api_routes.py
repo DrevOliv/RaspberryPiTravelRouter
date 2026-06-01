@@ -1,7 +1,8 @@
 import json
+import time
 from pathlib import Path
 
-from fastapi import APIRouter
+from fastapi import APIRouter, BackgroundTasks
 
 from TravelRouter.config_file import DataManager
 from TravelRouter.helpers.api_response import ApiResponse
@@ -64,3 +65,22 @@ def _diagnostics() -> dict:
 )
 async def api_diagnostics() -> ApiResponse:
     return ApiResponse(success=True, msg=await run_in_thread(_diagnostics), msg_type="json")
+
+
+def _poweroff() -> None:
+    # Brief delay so the HTTP response is flushed to the client before the box
+    # goes down; the actual poweroff runs after this request has returned.
+    time.sleep(1)
+    run_command(["sudo", "systemctl", "poweroff"])
+
+
+@router.post(
+    "/system/shutdown",
+    response_model=ApiResponse,
+    tags=["system"],
+    summary="Shut down the Pi",
+    description="Powers off the Raspberry Pi. The device must be physically powered back on.",
+)
+async def api_shutdown(background_tasks: BackgroundTasks) -> ApiResponse:
+    background_tasks.add_task(_poweroff)
+    return ApiResponse(success=True, msg="Shutting down — the Pi will power off in a moment.")

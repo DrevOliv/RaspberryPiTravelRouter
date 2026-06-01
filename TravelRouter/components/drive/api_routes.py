@@ -87,6 +87,13 @@ async def api_mount_drive(body: MountRequest):
 
     existing_mount_point = await run_in_thread(find_device_mount_point, device)
     if existing_mount_point:
+        # Already mounted elsewhere — drop the empty dir we just created so it
+        # doesn't linger under /mnt/drives. (rmdir only removes it if empty.)
+        if existing_mount_point != mount_point:
+            try:
+                await run_in_thread(delete_dir, mount_point)
+            except (OSError, ValueError):
+                pass
         return ApiResponse(
             success=True,
             msg={"drive": label, "mount_point": existing_mount_point},

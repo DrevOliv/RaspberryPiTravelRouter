@@ -28,6 +28,10 @@ RuntimeDirectory=travelrouter
 # NOT set — the app relies on sudo (needs privilege escalation) and on the
 # rsync SSH key, both of which those options would break.
 ProtectSystem=full
+# ProtectSystem=full mounts /etc read-only in the service namespace, which even
+# sudo can't escape — so the privileged hostapd helper can't update its config.
+# Carve out the one directory it must write.
+ReadWritePaths=/etc/hostapd
 PrivateTmp=true
 ProtectControlGroups=true
 ProtectKernelTunables=true

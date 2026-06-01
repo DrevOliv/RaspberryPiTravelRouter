@@ -1049,11 +1049,16 @@ function buildFolderList(drive, idx) {
     row.innerHTML = `
       <span class="folder-row-icon">&#x1F4C1;</span>
       <span class="folder-row-name">${esc(dir.name)}</span>
-      <span style="font-size:12px;color:var(--text-sub);">&#x276F;</span>`;
+      <button class="folder-row-enter" type="button" aria-label="Open ${esc(dir.name)}">&#x276F;</button>`;
 
-    // Single click = select/deselect; double click = navigate into
+    // Tap the name/icon = select/deselect; tap the arrow = open the folder.
+    // (Double-click still navigates, for desktop muscle memory.)
     row.addEventListener('click', () => selectFolder(idx, dir, drive));
     row.addEventListener('dblclick', () => navigateTo(idx, [...drive.pathParts, dir.name]));
+    row.querySelector('.folder-row-enter').addEventListener('click', e => {
+      e.stopPropagation();  // don't also select the row
+      navigateTo(idx, [...drive.pathParts, dir.name]);
+    });
 
     list.appendChild(row);
   });
@@ -1111,11 +1116,6 @@ async function unmountDrive(idx) {
   const drive   = mountedDrives[idx];
   if (!drive) return;
 
-  // Clear selection if it belongs to this drive
-  if (selectedFolder && selectedFolder.driveIdx === idx) {
-    selectedFolder = null;
-  }
-
   const section = document.getElementById(`mounted-drive-${idx}`);
   const btn     = section && section.querySelector('.unmount-btn');
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
@@ -1125,6 +1125,12 @@ async function unmountDrive(idx) {
   if (r && r.success) {
     toast(`Unmounted ${drive.label}`, 'success');
     mountedDrives.splice(idx, 1);
+    // Selection is keyed by array index, which shifts when an earlier drive is
+    // removed — clear it if it was this drive, otherwise fix up the index.
+    if (selectedFolder) {
+      if (selectedFolder.driveIdx === idx)    selectedFolder = null;
+      else if (selectedFolder.driveIdx > idx) selectedFolder.driveIdx -= 1;
+    }
     saveMountedDrives();
     renderMounted();
   } else {

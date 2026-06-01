@@ -43,7 +43,8 @@ echo "iptables-persistent iptables-persistent/autosave_v6 boolean true" | debcon
 apt-get update -qq
 apt-get install -y -qq \
   hostapd dnsmasq network-manager iw iptables-persistent \
-  git python3-venv rsync openssh-client
+  git python3-venv rsync openssh-client \
+  ntfs-3g exfatprogs dosfstools   # filesystem support for NTFS/exFAT/FAT USB drives
 
 # ── Service user ─────────────────────────────────────────────────────────────
 id "$APP_USER" &>/dev/null || useradd -m -s /bin/bash "$APP_USER"

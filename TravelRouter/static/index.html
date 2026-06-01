@@ -160,8 +160,9 @@
     <h3 id="pw-modal-title" style="margin-bottom:6px;word-break:break-all;"></h3>
     <p id="pw-modal-sub" style="margin-bottom:16px;"></p>
     <div id="pw-modal-fields"></div>
-    <div style="display:flex;gap:8px;margin-top:16px;">
+    <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;">
       <button class="btn btn-primary btn-full" id="pw-modal-btn"></button>
+      <button class="btn btn-danger btn-full" id="pw-modal-disconnect" style="display:none;" onclick="disconnectWifi()">Disconnect</button>
       <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closePwModal()">Cancel</button>
     </div>
   </div>
@@ -447,6 +448,10 @@ function openPwModal(ssid, isOpen, isConn) {
 
   const subEl = document.getElementById('pw-modal-sub');
   const btn   = document.getElementById('pw-modal-btn');
+  const disconnectBtn = document.getElementById('pw-modal-disconnect');
+
+  // Only offer Disconnect for the network we're currently connected to.
+  disconnectBtn.style.display = isConn ? '' : 'none';
 
   if (isConn) {
     subEl.textContent  = 'Already connected. Reconnect?';
@@ -485,6 +490,18 @@ function submitPwModal() {
   const pw     = input ? input.value : '';
   closePwModal();
   if (ssid) doConnect(ssid, isOpen, pw);
+}
+
+async function disconnectWifi() {
+  const ssid = pwModalSSID;
+  closePwModal();
+  const r = await api('POST', '/wifi/disconnect');
+  if (r && r.success) {
+    toast(ssid ? `Disconnected from ${ssid}` : 'WiFi disconnected', 'success');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Failed to disconnect', 'error');
+  }
+  void pollWifi();
 }
 
 async function doConnect(ssid, isOpen, password) {

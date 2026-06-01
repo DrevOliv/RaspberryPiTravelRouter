@@ -127,6 +127,14 @@
         <div class="form-gap">
           <div id="diagnostics"><p class="hint">Loading&#x2026;</p></div>
         </div>
+        <div class="section-title">Power</div>
+        <div class="form-gap">
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-sm btn-danger" id="shutdown-btn" onclick="shutdownPi()">&#x23FB; Shut Down Pi</button>
+          </div>
+          <div class="hint" style="margin-top:6px;">Powers off the device. You'll need to physically unplug and replug it to turn it back on.</div>
+          <div id="power-status"></div>
+        </div>
       </div>
     </div>
 
@@ -709,6 +717,19 @@ async function apControl(action) {
   setBusy(btnId, false, label);
   setStatus('ap-control-status', r && r.success ? `Access point ${action}ed.` : `Could not ${action} the access point.`, !!(r && r.success));
   void loadDiagnostics();
+}
+
+async function shutdownPi() {
+  if (!confirm('Shut down the Pi now? It will power off and stay off until you unplug and replug it.')) return;
+  setBusy('shutdown-btn', true, '⏻ Shut Down Pi');
+  const r = await api('POST', '/system/shutdown');
+  if (r && r.success) {
+    setStatus('power-status', (typeof r.msg === 'string' ? r.msg : null) || 'Shutting down…', true);
+    // The connection will drop as the Pi powers off; leave the button disabled.
+  } else {
+    setBusy('shutdown-btn', false, '⏻ Shut Down Pi');
+    setStatus('power-status', 'Could not shut down the Pi.', false);
+  }
 }
 
 // ─── Access Point config (raw hostapd.conf) ──────────────────────────────────
