@@ -7,6 +7,7 @@ class ExitNodeServer(BaseModel):
 
 
 class TailscaleStatus(BaseModel):
+    available: bool = Field(True, description="Whether the Tailscale CLI is installed and responding")
     online: bool = Field(..., description="If tailscale is online, up or down")
     exit_node: bool = Field(..., description="If tailscale uses exitnode")
     exit_node_server: str | None = Field(..., description="Tailscale exit node server that is used")

@@ -298,6 +298,12 @@ async function loadExitNodes() {
   }
 
   const status  = tsRes.msg;
+
+  if (status.available === false) {
+    hint.textContent = 'Tailscale is not installed on this device.';
+    return;
+  }
+
   const nodes   = status.exit_node_servers || [];
   // Saved preference takes priority; fall back to the currently active node
   const savedNode = (cfgRes && cfgRes.success && cfgRes.msg.exit_node) || status.exit_node_server || '';

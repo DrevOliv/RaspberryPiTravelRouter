@@ -13,285 +13,44 @@ The web UI lets you:
 
 - Scan for and connect to upstream Wi-Fi networks (or use ethernet)
 - Manage your private access point — change the SSID, password, and view connected devices
-- Select a Tailscale exit node to route all AP traffic through a VPN, or disable it
+- Optionally route all AP traffic through a Tailscale exit node
+- Mount USB drives and back them up to a remote server over rsync/SSH
 - Change the admin password and configure app settings
 
-Internally, the private AP is managed by **hostapd** (communicating directly over its UNIX control socket), while the upstream connection is handled by **nmcli**. The backend is a FastAPI app served over Uvicorn.
+The private AP is managed by **hostapd** (over its UNIX control socket), the upstream connection by **nmcli**, and backups by **rsync over SSH**. The backend is a FastAPI app served with Uvicorn. Tailscale is optional — if it isn't installed the UI just shows it as unavailable.
 
 ---
 
 ## Installation
 
-### Hardware
+> **Prerequisite:** complete the one-time OS & network configuration in
+> [`docs/manual-setup.md`](docs/manual-setup.md) first (Wi-Fi interfaces, hostapd,
+> dnsmasq, NAT). Tailscale is optional.
 
-- Raspberry Pi (tested on Pi 4 / Pi Zero 2W)
-- Two Wi-Fi interfaces:
-  - `wlan0` — connects to the upstream internet (hotel/cafe Wi-Fi)
-  - `wlan1` — broadcasts the private access point
+### Quick install
 
-A USB Wi-Fi adapter is needed for the second interface. See [`docs/Rtl8812au rpi install guide.md`](docs/Rtl8812au%20rpi%20install%20guide.md) for driver setup on RTL8812AU adapters.
-
----
-
-### System Setup
-
-Complete these steps once on the Pi before running the app.
-
-### 1. Install packages
-
-```bash
-sudo apt update
-sudo apt install -y hostapd dnsmasq network-manager git python3-venv rsync openssh-client
-```
-
-(`git`, `python3-venv`, `rsync`, and `openssh-client` are needed by the app and installer; the quick-install script also installs them, so you can skip them here if you use that path.)
-
-Install Tailscale using their official script:
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-```
-
-Unmask and stop hostapd — it will be started by the app later:
-
-```bash
-sudo systemctl unmask hostapd
-sudo systemctl stop hostapd
-sudo systemctl disable hostapd
-```
-
-Stop dnsmasq for now too:
-
-```bash
-sudo systemctl stop dnsmasq
-```
-
----
-
-### 2. Enable NetworkManager and configure interfaces
-
-Enable and start NetworkManager so it manages `wlan0` (upstream Wi-Fi):
-
-```bash
-sudo systemctl enable --now NetworkManager
-```
-
-Tell NetworkManager to ignore `wlan1` — hostapd and dnsmasq own that interface:
-
-```bash
-sudo mkdir -p /etc/NetworkManager/conf.d
-sudo tee /etc/NetworkManager/conf.d/unmanaged.conf > /dev/null << 'EOF'
-[keyfile]
-unmanaged-devices=interface-name:wlan1
-EOF
-
-sudo systemctl restart NetworkManager
-```
-
-Verify `wlan0` shows as `managed` and `wlan1` as `unmanaged`:
-
-```bash
-nmcli device status
-```
-
-Expected output:
-
-```
-DEVICE   TYPE      STATE        CONNECTION
-wlan0    wifi      disconnected --
-wlan1    wifi      unmanaged    --
-```
-
-`wlan0` will show `disconnected` until you connect to an upstream network through the app.
-
----
-
-### 3. Assign a static IP to the AP interface
-
-Create a systemd oneshot service that assigns the IP at boot, before hostapd starts. This requires no extra packages and has no interaction with NetworkManager.
-
-```bash
-sudo tee /etc/systemd/system/wlan1-static-ip.service > /dev/null << 'EOF'
-[Unit]
-Description=Static IP for wlan1 (AP interface)
-Before=hostapd.service
-Wants=network.target
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=/usr/sbin/ip addr add 192.168.50.1/24 dev wlan1
-ExecStart=/usr/sbin/iw dev wlan1 set power_save off
-ExecStop=/usr/sbin/ip addr del 192.168.50.1/24 dev wlan1
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now wlan1-static-ip.service
-```
-
-Verify:
-
-```bash
-ip addr show wlan1
-```
-
----
-
-### 4. Configure dnsmasq (DHCP for connected devices)
-
-```bash
-sudo tee /etc/dnsmasq.d/travelrouter.conf > /dev/null << 'EOF'
-interface=wlan1
-dhcp-range=192.168.50.2,192.168.50.100,12h
-dhcp-option=3,192.168.50.1
-dhcp-option=6,8.8.8.8,1.1.1.1
-EOF
-
-sudo systemctl enable dnsmasq
-sudo systemctl start dnsmasq
-```
-
----
-
-### 5. Write the initial hostapd config
-
-The app will overwrite this file whenever you change SSID or password through the UI, but it needs an initial config to start from.
-
-> **Change `country_code`** to your country before proceeding.
-> Using the wrong country code may violate local radio regulations.
-
-```bash
-sudo mkdir -p /etc/hostapd
-
-sudo tee /etc/hostapd/hostapd.conf > /dev/null << 'EOF'
-interface=wlan1
-driver=nl80211
-
-ssid=RouterPi
-
-country_code=SE
-
-hw_mode=g
-channel=6
-ieee80211n=1
-wmm_enabled=1
-
-wpa=2
-wpa_key_mgmt=WPA-PSK SAE
-rsn_pairwise=CCMP
-wpa_passphrase=Password123
-
-ieee80211w=1
-sae_require_mfp=1
-
-auth_algs=1
-ignore_broadcast_ssid=0
-ctrl_interface=/var/run/hostapd
-ctrl_interface_group=netdev
-EOF
-```
-
-Enable and start hostapd:
-
-```bash
-sudo systemctl enable hostapd
-sudo systemctl start hostapd
-```
-
-Verify the control socket exists:
-
-```bash
-ls /var/run/hostapd/wlan1
-```
-
----
-
-### 6. Set upstream interface priority (eth0 over wlan0)
-
-When both ethernet and Wi-Fi are connected, eth0 should be preferred. Create a NetworkManager dispatcher script to set route metrics automatically whenever an interface comes up:
-
-```bash
-sudo tee /etc/NetworkManager/dispatcher.d/10-route-metric > /dev/null << 'EOF'
-#!/bin/bash
-if [ "$2" = "up" ]; then
-    if [ "$DEVICE_IFACE" = "wlan0" ]; then
-        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 100
-    fi
-    if [ "$DEVICE_IFACE" = "eth0" ]; then
-        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 50
-    fi
-fi
-EOF
-
-sudo chmod +x /etc/NetworkManager/dispatcher.d/10-route-metric
-```
-
-Lower metric = higher priority, so eth0 (50) beats wlan0 (100).
-
----
-
-### 7. Enable IP forwarding and NAT
-
-```bash
-# Persist IP forwarding across reboots
-sudo tee /etc/sysctl.d/99-travelrouter.conf > /dev/null << 'EOF'
-net.ipv4.ip_forward=1
-EOF
-
-sudo sysctl -p /etc/sysctl.d/99-travelrouter.conf
-
-# wlan0 (upstream Wi-Fi)
-sudo iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
-sudo iptables -A FORWARD -i wlan1 -o wlan0 -j ACCEPT
-sudo iptables -A FORWARD -i wlan0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# eth0 (ethernet — used when connected, preferred over wlan0)
-sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-sudo iptables -A FORWARD -i wlan1 -o eth0 -j ACCEPT
-sudo iptables -A FORWARD -i eth0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# tailscale0 (when Tailscale exit node is active)
-# These rules are inactive when Tailscale is off — no impact on normal routing
-sudo iptables -t nat -A POSTROUTING -o tailscale0 -j MASQUERADE
-sudo iptables -A FORWARD -i wlan1 -o tailscale0 -j ACCEPT
-sudo iptables -A FORWARD -i tailscale0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-# Save rules so they survive a reboot
-sudo apt install -y iptables-persistent
-sudo netfilter-persistent save
-```
-
----
-
-### App Setup
-
-The app runs as a dedicated `travelrouter` user, with code in `/opt/travelrouter` and mutable state (config + admin password hash) in `/var/lib/travelrouter` — kept out of the code tree so updates never touch it.
-
-**Quick install:** on the Pi, run:
+On the Pi, run:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/DrevOliv/RaspberryPiRouter/main/deploy/install.sh | sudo bash
 ```
 
-This clones the repo to `/opt/travelrouter` and does steps 1 and 3–7 below. Then add SSH access (step 2) if you want to pull updates as the `travelrouter` user. The manual steps below explain exactly what the script does.
+This installs prerequisites, creates the `travelrouter` user, clones the repo to `/opt/travelrouter`, builds the virtualenv, installs the privileged hostapd helper and sudoers rules, and enables the service. Then set up SSH access (manual step 2 below) if you want to pull updates as the `travelrouter` user.
 
-#### 1. Create the service user
+Open `http://<pi-ip>:8080/` and log in with the default password **`changeme`** (printed in the journal on first boot). **Change it immediately** from the Settings page.
 
-A regular user with a home directory and SSH access so you can log in to pull updates.
+### Manual install
+
+The app runs as a dedicated `travelrouter` user, with code in `/opt/travelrouter` and mutable state (config + admin password hash) in `/var/lib/travelrouter` — kept out of the code tree so updates never touch it. These are the steps the quick-install script performs.
+
+**1. Create the service user**
 
 ```bash
 sudo useradd -m -s /bin/bash travelrouter
-
-# Allow the service user to reach the hostapd control socket
-sudo usermod -aG netdev travelrouter
+sudo usermod -aG netdev travelrouter   # reach the hostapd control socket
 ```
 
-#### 2. Set up SSH access
-
-Copy your public key so you can log in as `travelrouter` later to pull updates:
+**2. Set up SSH access** (so you can log in to pull updates)
 
 ```bash
 sudo mkdir -p /home/travelrouter/.ssh
@@ -301,63 +60,46 @@ sudo chmod 700 /home/travelrouter/.ssh
 sudo chmod 600 /home/travelrouter/.ssh/authorized_keys
 ```
 
-#### 3. Clone the repository and install dependencies
+**3. Clone and install dependencies**
 
 ```bash
 sudo mkdir -p /opt/travelrouter
 sudo chown travelrouter:travelrouter /opt/travelrouter
-sudo -u travelrouter git clone git@github.com:DrevOliv/RaspberryPiRouter.git /opt/travelrouter
+sudo -u travelrouter git clone https://github.com/DrevOliv/RaspberryPiRouter.git /opt/travelrouter
 sudo -u travelrouter python3 -m venv /opt/travelrouter/.venv
 sudo -u travelrouter /opt/travelrouter/.venv/bin/pip install -r /opt/travelrouter/requirements.txt
 ```
 
-#### 4. Create the environment file
-
-Lives next to the code and is gitignored, so it survives `git pull`:
+**4. Create the environment file** (gitignored, so it survives `git pull`)
 
 ```bash
 sudo -u travelrouter cp /opt/travelrouter/travelrouter.env.example /opt/travelrouter/travelrouter.env
-# edit /opt/travelrouter/travelrouter.env if you need to change any defaults
 ```
 
-#### 5. Install the privileged hostapd helper
-
-The app reads and writes `/etc/hostapd/hostapd.conf` through a small fixed-purpose helper rather than blanket root access:
+**5. Install the privileged hostapd helper** (reads/writes `/etc/hostapd/hostapd.conf` without blanket root)
 
 ```bash
 sudo install -m 755 /opt/travelrouter/deploy/travelrouter-hostapd /usr/local/sbin/travelrouter-hostapd
 ```
 
-#### 6. Install sudoers rules
-
-The app needs passwordless `sudo` for `nmcli`, `tailscale`, `mount`/`umount`, `systemctl` (hostapd), the app restart, and the hostapd helper. A template is included:
+**6. Install sudoers rules** (passwordless `sudo` for `nmcli`, `tailscale`, `mount`/`umount`, the hostapd helper, and the service restart)
 
 ```bash
 sudo install -m 440 /opt/travelrouter/deploy/sudoers.travelrouter /etc/sudoers.d/travelrouter
-
-# If `which nmcli` / `which tailscale` differ from /usr/bin, fix the paths:
-sudo visudo -f /etc/sudoers.d/travelrouter
-
-# Validate
-sudo visudo -c
+sudo visudo -f /etc/sudoers.d/travelrouter   # fix paths if `which nmcli`/`tailscale` differ from /usr/bin
+sudo visudo -c                                # validate
 ```
 
-#### 7. Install and enable the service
-
-The unit creates `/var/lib/travelrouter` (data) and `/run/travelrouter` (runtime staging) automatically.
+**7. Install and enable the service** (auto-creates `/var/lib/travelrouter` and `/run/travelrouter`)
 
 ```bash
 sudo ln -sf /opt/travelrouter/travelrouter.service /etc/systemd/system/travelrouter.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now travelrouter
-```
-
-Check it started correctly:
-
-```bash
 sudo systemctl status travelrouter
-journalctl -u travelrouter -f
 ```
+
+After installing, work through [`TESTING.md`](TESTING.md) to verify each feature on the Pi.
 
 ---
 
@@ -376,46 +118,34 @@ Your config, admin password, and `travelrouter.env` live outside the code tree (
 
 ---
 
-## First Login
+## Development
 
-Open `http://<pi-ip>:8080/` in your browser. The default password is:
+You can run the app on any machine for UI and API work — you don't need a Pi:
 
+```bash
+git clone https://github.com/DrevOliv/RaspberryPiRouter.git
+cd RaspberryPiRouter
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python app.py            # serves on http://localhost:8080 (default password: changeme)
 ```
-changeme
-```
 
-Change it immediately from the Settings page.
+The app shells out to system tools (`nmcli`, `hostapd`, `tailscale`, `mount`, `rsync`). Off a Pi these degrade gracefully rather than crash — Tailscale shows *Unavailable*, Wi-Fi scans return errors, etc. — so the UI is fully browsable for front-end iteration, but full behavior needs the Pi.
 
----
+- **Data file:** defaults to `./data/data.json` in dev; override with `TRAVELROUTER_DATA_FILE_PATH`.
+- **Interactive API docs:** `http://localhost:8080/docs` (every endpoint, with schemas).
+- **Auth:** all API routes except login/logout require a session cookie; the UI handles this, and `/api/health` is public.
 
-## Configuration
+### Configuration
 
-App behaviour can be overridden with environment variables. Put them in `/opt/travelrouter/travelrouter.env` (loaded by the systemd unit); see `travelrouter.env.example`.
+Environment variables (set in `/opt/travelrouter/travelrouter.env` on the Pi, or your shell in dev; see `travelrouter.env.example`):
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `TRAVELROUTER_AUTH_COOKIE_NAME` | Session cookie name | `tr_session` |
 | `TRAVELROUTER_AUTH_SESSION_TTL_SECONDS` | Session lifetime in seconds | `86400` |
-| `TRAVELROUTER_AUTH_SECURE_COOKIE` | Set secure flag on cookies (use behind HTTPS) | `false` |
-| `TRAVELROUTER_DATA_FILE_PATH` | Path to the JSON data file | `/var/lib/travelrouter/data.json` (set by the unit) |
-
----
-
-## How It Works
-
-```
-          Internet
-             │
-           wlan0  ← nmcli connects this to upstream Wi-Fi
-             │
-        [Raspberry Pi]
-             │
-           wlan1  ← hostapd broadcasts the private AP
-             │
-       Connected devices  ← dnsmasq assigns IPs (192.168.50.x)
-```
-
-The Python app communicates with hostapd via its UNIX control socket (`/var/run/hostapd/wlan1`) to list clients, reload config, and manage the service. Config changes (SSID, password) are written to `/etc/hostapd/hostapd.conf` and applied with a `RELOAD` command over the socket.
+| `TRAVELROUTER_AUTH_SECURE_COOKIE` | Set the Secure flag on cookies (use behind HTTPS) | `false` |
+| `TRAVELROUTER_DATA_FILE_PATH` | Path to the JSON data file | `/var/lib/travelrouter/data.json` (set by the systemd unit) |
 
 ---
 
@@ -423,7 +153,7 @@ The Python app communicates with hostapd via its UNIX control socket (`/var/run/
 
 ```
 .
-├── app.py
+├── app.py                          # entrypoint (uvicorn)
 ├── requirements.txt
 ├── travelrouter.service            # systemd unit (symlinked into /etc/systemd/system)
 ├── travelrouter.env.example        # copy to travelrouter.env (gitignored)
@@ -431,59 +161,24 @@ The Python app communicates with hostapd via its UNIX control socket (`/var/run/
 │   ├── install.sh                  # one-line bootstrap installer (clones + sets up)
 │   ├── travelrouter-hostapd        # privileged helper → /usr/local/sbin
 │   └── sudoers.travelrouter        # sudoers template → /etc/sudoers.d/travelrouter
-├── TravelRouter/
-│   ├── __init__.py                 # app factory, routers, router-level auth
-│   ├── static/                     # index / login / settings / drives html + style.css
-│   ├── helpers/                    # run_command, api_response
-│   ├── config_file/                # DataManager + data models
-│   └── components/
-│       ├── auth/                   # session login + password hashing
-│       ├── settings/               # /settings/config, rsync destination
-│       ├── tailscale/              # exit-node + up/down control
-│       ├── drive/                  # drive discovery + mount/unmount
-│       ├── rsync/                  # background rsync jobs + SSE stream + remote ops
-│       └── wifi/
-│           ├── hostapd.py          # HostapdController — socket comms + service control
-│           ├── hostapd_config.py   # Config file model
-│           ├── system_api.py       # nmcli wrappers for upstream Wi-Fi
-│           ├── functions.py        # Parsing helpers
-│           └── api_routes.py
+├── docs/
+│   └── manual-setup.md             # one-time OS & network configuration
+├── TESTING.md                      # post-install manual test checklist
+└── TravelRouter/
+    ├── __init__.py                 # app factory, router wiring, router-level auth
+    ├── static/                     # index / login / settings / drives html + style.css
+    ├── helpers/                    # run_command, api_response
+    ├── config_file/                # DataManager + data models
+    └── components/                 # one package per feature, each with api_routes.py
+        ├── auth/                   # session login + password hashing
+        ├── settings/               # config, rsync destination, SSH key
+        ├── tailscale/              # exit-node + up/down control (optional)
+        ├── drive/                  # USB drive discovery + mount/unmount
+        ├── rsync/                  # background rsync jobs + live SSE stream + remote ops
+        └── wifi/                   # nmcli upstream + hostapd AP control
 ```
 
----
-
-## API Surface
-
-All endpoints except `/api/auth/login` and `/api/auth/logout` require an authenticated session.
-
-| Area | Endpoints |
-| --- | --- |
-| Auth | `/api/auth/login`, `/api/auth/logout`, `/api/auth/change-password`, `/api/auth/session` |
-| Settings | `/settings/config`, `/settings/rsync/destination` |
-| Wi-Fi | `/wifi/wifi-live`, `/wifi/connect`, `/wifi/disconnect`, `/wifi/ap-qr`, `/settings/wifi`, `/settings/wifi/ap-ssid`, `/settings/wifi/ap-password` |
-| Tailscale | `/tailscale/status`, `/tailscale/selection`, `/tailscale/set-exit-node`, `/tailscale/disable-exit-node`, `/tailscale/up`, `/tailscale/down` |
-| Drive | `/drive/available_drives`, `/drive/mount`, `/drive/unmount`, `/drive/folders` |
-| Rsync | `/rsync/jobs` (GET/POST), `/rsync/jobs/{id}` (DELETE), `/rsync/stream` (SSE), `/rsync/remote/test`, `/rsync/remote/folder` |
-
-Full interactive docs: `http://<pi-ip>:8080/docs`
-
----
-
-## Troubleshooting
-
-**hostapd socket not found** — hostapd is not running or `ctrl_interface` is not set in the config. Check `systemctl status hostapd` and verify `/var/run/hostapd/wlan1` exists.
-
-**Devices connect but have no internet** — IP forwarding or NAT rules are missing. Re-run step 6 of system setup and verify with `sudo iptables -t nat -L`.
-
-**wlan1 address not assigned** — Check `dhcpcd.conf` and restart dhcpcd: `sudo systemctl restart dhcpcd`. Verify with `ip addr show wlan1`.
-
-**App cannot write hostapd config** — Verify the helper is installed at `/usr/local/sbin/travelrouter-hostapd` and the `travelrouter` user has the matching `travelrouter-hostapd read`/`write` rules in `/etc/sudoers.d/travelrouter` (`visudo -c` to validate).
-
----
-
-## Security Note
-
-This project is designed for a trusted personal network. The app runs unprivileged and escalates only through the specific commands granted in `/etc/sudoers.d/travelrouter`; the hostapd config write is locked to the `travelrouter-hostapd` helper rather than a blanket `cp`. The `nmcli`, `tailscale`, and `mount`/`umount` grants are still broad by nature, so review the sudoers rules and the route-level authentication before exposing the app beyond your local network. It serves plain HTTP — put it behind a TLS reverse proxy (and set `TRAVELROUTER_AUTH_SECURE_COOKIE=1`) if it's reachable from anywhere untrusted.
+Each component owns its routes (`api_routes.py`), models (`data_models.py`), and system calls (`system_api.py`); `TravelRouter/__init__.py` mounts them and enforces auth. The full HTTP surface is browsable at `/docs`.
 
 ---
 
