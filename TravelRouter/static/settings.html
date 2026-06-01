@@ -109,6 +109,23 @@
       </div>
     </div>
 
+    <!-- ── Backup SSH Key ── -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F511;</span> Backup SSH Key</div>
+      </div>
+      <div class="form-section">
+        <div class="section-title">This device's public key</div>
+        <div class="form-gap">
+          <p class="hint">This device uses an SSH key to send files to your backup server. Copy the public key below and add it to the server's <code>~/.ssh/authorized_keys</code>.</p>
+          <div id="ssh-key-area">
+            <p class="hint" id="ssh-key-loading">Loading&#x2026;</p>
+          </div>
+          <div id="ssh-status"></div>
+        </div>
+      </div>
+    </div>
+
     <!-- ── Password ── -->
     <div class="card">
       <div class="card-head">
@@ -482,6 +499,69 @@ async function loadCurrentSettings() {
   if (s.rsync_destination) document.getElementById('rsync-dest').value = s.rsync_destination;
 }
 
+// ─── Backup SSH key ──────────────────────────────────────────────────────────
+
+async function loadSshKey() {
+  const r = await api('GET', '/settings/ssh-key');
+  renderSshKey(r && r.success ? r.msg : null);
+}
+
+function renderSshKey(info) {
+  const area = document.getElementById('ssh-key-area');
+  if (!area) return;
+
+  if (!info) {
+    area.textContent = 'Could not load SSH key status.';
+    return;
+  }
+
+  if (!info.exists) {
+    area.innerHTML =
+      '<p class="hint">No SSH key on this device yet.</p>' +
+      '<button class="btn btn-primary" id="gen-ssh-btn" onclick="generateSshKey()">Create SSH Key</button>';
+    return;
+  }
+
+  // Build structure, then set untrusted values via .value / .textContent (no HTML injection).
+  area.innerHTML = `
+    <div class="field">
+      <label for="ssh-pub">Public key</label>
+      <textarea id="ssh-pub" readonly rows="3"
+        style="width:100%;font-family:monospace;font-size:12px;resize:vertical;word-break:break-all;"></textarea>
+    </div>
+    <p class="hint" id="ssh-fp"></p>
+    <div>
+      <button class="btn btn-ghost" id="copy-ssh-btn" onclick="copySshKey()">Copy public key</button>
+    </div>`;
+  document.getElementById('ssh-pub').value = info.public_key || '';
+  document.getElementById('ssh-fp').textContent = info.fingerprint || '';
+}
+
+async function generateSshKey() {
+  setBusy('gen-ssh-btn', true, 'Create SSH Key');
+  const r = await api('POST', '/settings/ssh-key/generate');
+  if (r && r.success && r.msg) {
+    renderSshKey(r.msg);
+    setStatus('ssh-status', 'SSH key ready — copy the public key to your server.', true);
+  } else {
+    setStatus('ssh-status', (r && typeof r.msg === 'string' ? r.msg : null) || 'Could not create key', false);
+    const btn = document.getElementById('gen-ssh-btn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Create SSH Key'; }
+  }
+}
+
+async function copySshKey() {
+  const ta = document.getElementById('ssh-pub');
+  if (!ta) return;
+  try {
+    await navigator.clipboard.writeText(ta.value);
+  } catch {
+    ta.select();
+    document.execCommand('copy');
+  }
+  toast('Public key copied', 'success');
+}
+
 // ─── Health check ────────────────────────────────────────────────────────────
 
 let healthTimer = null;
@@ -512,6 +592,7 @@ function startSettingsPage() {
   void checkAuth();
   void loadCurrentSettings();
   void loadExitNodes();
+  void loadSshKey();
   void checkHealth();
 
   if (healthTimer === null) {

@@ -41,8 +41,10 @@ Complete these steps once on the Pi before running the app.
 
 ```bash
 sudo apt update
-sudo apt install -y hostapd dnsmasq network-manager
+sudo apt install -y hostapd dnsmasq network-manager git python3-venv rsync openssh-client
 ```
+
+(`git`, `python3-venv`, `rsync`, and `openssh-client` are needed by the app and installer; the quick-install script also installs them, so you can skip them here if you use that path.)
 
 Install Tailscale using their official script:
 

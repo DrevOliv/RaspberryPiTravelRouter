@@ -1,18 +1,60 @@
+import os
 import shlex
+from pathlib import Path
 
 from fastapi import APIRouter
 
 from TravelRouter.components.settings.data_models import (
     SetRsyncDestinationRequest,
     SettingsConfigResponse,
+    SshKeyResponse,
 )
 from TravelRouter.config_file import DataManager
 from TravelRouter.helpers.api_response import ApiResponse
-from TravelRouter.helpers.run_command import run_command, run_in_thread
+from TravelRouter.helpers.run_command import CmdStatus, run_command, run_in_thread
 
 router = APIRouter()
 
 data_manager = DataManager()
+
+# SSH identity this device uses for rsync-over-SSH backups. The remote server
+# must hold the matching PUBLIC key in its authorized_keys. ssh/rsync pick up
+# these default key names automatically (no -i needed).
+_SSH_DIR = Path(os.getenv("TRAVELROUTER_SSH_DIR", str(Path.home() / ".ssh")))
+_DEFAULT_KEY_NAMES = ("id_ed25519", "id_ecdsa", "id_rsa")
+_MANAGED_KEY = _SSH_DIR / "id_ed25519"  # created by generate when none exists
+
+
+def _existing_public_key() -> Path | None:
+    for name in _DEFAULT_KEY_NAMES:
+        private = _SSH_DIR / name
+        public = _SSH_DIR / f"{name}.pub"
+        if private.exists() and public.exists():
+            return public
+    return None
+
+
+def _read_ssh_key() -> SshKeyResponse:
+    public = _existing_public_key()
+    if public is None:
+        return SshKeyResponse(exists=False)
+    fingerprint = run_command(["ssh-keygen", "-lf", str(public)])
+    return SshKeyResponse(
+        exists=True,
+        public_key=public.read_text(encoding="utf-8").strip(),
+        fingerprint=fingerprint.stdout if fingerprint.success else "",
+    )
+
+
+def _generate_ssh_key() -> CmdStatus:
+    _SSH_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(_SSH_DIR, 0o700)
+    return run_command([
+        "ssh-keygen", "-t", "ed25519", "-q",
+        "-N", "",                # no passphrase — unattended backups
+        "-C", "travelrouter",
+        "-f", str(_MANAGED_KEY),
+    ])
 
 
 @router.get(
@@ -78,3 +120,39 @@ async def api_set_rsync_destination(body: SetRsyncDestinationRequest) -> ApiResp
     data_manager.set_data(data)
 
     return ApiResponse(success=True, msg="Destination verified and saved")
+
+
+@router.get(
+    "/settings/ssh-key",
+    response_model=ApiResponse,
+    tags=["settings"],
+    summary="Get this device's backup SSH public key",
+    description=(
+        "Returns whether this device has an SSH key for backups and, if so, the "
+        "public key to copy into the remote server's authorized_keys."
+    ),
+)
+async def api_get_ssh_key() -> ApiResponse:
+    return ApiResponse(success=True, msg=await run_in_thread(_read_ssh_key), msg_type="json")
+
+
+@router.post(
+    "/settings/ssh-key/generate",
+    response_model=ApiResponse,
+    tags=["settings"],
+    summary="Create this device's backup SSH key",
+    description=(
+        "Generates an ed25519 SSH key if this device doesn't already have one, "
+        "then returns the public key. An existing key is left untouched."
+    ),
+)
+async def api_generate_ssh_key() -> ApiResponse:
+    existing = await run_in_thread(_read_ssh_key)
+    if existing.exists:
+        return ApiResponse(success=True, msg=existing, msg_type="json")
+
+    result = await run_in_thread(_generate_ssh_key)
+    if not result.success:
+        return ApiResponse(success=False, msg=result.stderr or "Could not generate SSH key")
+
+    return ApiResponse(success=True, msg=await run_in_thread(_read_ssh_key), msg_type="json")

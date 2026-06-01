@@ -12,3 +12,9 @@ class SettingsConfigResponse(BaseModel):
 class SetRsyncDestinationRequest(BaseModel):
     rsync_host: str
     rsync_destination: str
+
+
+class SshKeyResponse(BaseModel):
+    exists: bool
+    public_key: str = ""
+    fingerprint: str = ""

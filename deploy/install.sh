@@ -13,6 +13,10 @@ REPO_URL="${REPO_URL:-https://github.com/DrevOliv/RaspberryPiRouter.git}"
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (e.g. pipe to 'sudo bash')." >&2; exit 1; }
 
+# Prerequisites for the installer and the app (idempotent; safe to re-run).
+apt-get update -qq
+apt-get install -y -qq git python3-venv rsync openssh-client
+
 # Service user + hostapd socket access
 id "$APP_USER" &>/dev/null || useradd -m -s /bin/bash "$APP_USER"
 usermod -aG netdev "$APP_USER"

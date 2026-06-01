@@ -144,7 +144,9 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
         return ApiResponse(msg="SSID cannot be empty")
     result = await run_in_thread(hostapd_controller.change_ap_creds, ssid=ap_ssid)
     if not result.success:
-        return ApiResponse(msg=result.stderr or "Failed to update AP SSID")
+        # change_ap_creds returns an ApiResponse (its msg holds the error), not a CmdStatus.
+        detail = result.msg.get("error") if isinstance(result.msg, dict) else result.msg
+        return ApiResponse(success=False, msg=detail or "Failed to update AP SSID")
     return ApiResponse(success=True, msg="AP SSID saved")
 
 
@@ -158,5 +160,7 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
 async def api_wifi_ap_password(body: ApPasswordBody):
     result = await run_in_thread(hostapd_controller.change_ap_creds, wpa_passphrase=body.ap_password.strip())
     if not result.success:
-        return ApiResponse(msg=result.stderr or "Failed to update AP password")
+        # change_ap_creds returns an ApiResponse (its msg holds the error), not a CmdStatus.
+        detail = result.msg.get("error") if isinstance(result.msg, dict) else result.msg
+        return ApiResponse(success=False, msg=detail or "Failed to update AP password")
     return ApiResponse(success=True, msg="AP password saved")
