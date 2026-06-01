@@ -7,7 +7,9 @@
 # this, configure everything else from the web UI.
 #
 # Tailscale is optional and NOT installed here — see docs/manual-setup.md.
-# Override any default by exporting it first, e.g.:  AP_IFACE=wlan2 COUNTRY=SE sudo -E bash install.sh
+# Override any default by exporting it first, e.g.:  AP_IFACE=wlan2 COUNTRY=GB sudo -E bash install.sh
+# Re-test from scratch with FRESH=1 — rewrites hostapd.conf + travelrouter.env and
+# resets saved settings/password:  curl -fsSL .../install.sh | sudo FRESH=1 bash
 #
 # Note: this restarts NetworkManager, so run it from a console/ethernet rather
 # than over upstream Wi-Fi if you can.
@@ -25,9 +27,10 @@ ETH_IFACE="${ETH_IFACE:-eth0}"                # wired upstream (optional)
 AP_IP="${AP_IP:-192.168.50.1}"
 DHCP_START="${DHCP_START:-192.168.50.2}"
 DHCP_END="${DHCP_END:-192.168.50.100}"
-COUNTRY="${COUNTRY:-00}"                       # wifi regulatory domain; set yours in the UI
+COUNTRY="${COUNTRY:-SE}"                        # wifi regulatory domain (2-letter); override per your location
 AP_SSID="${AP_SSID:-RouterPi}"
 AP_PASSPHRASE="${AP_PASSPHRASE:-Password123}"
+FRESH="${FRESH:-}"                              # set to 1 to overwrite existing config (fresh install)
 
 [[ $EUID -eq 0 ]] || { echo "Run as root (e.g. pipe to 'sudo bash')." >&2; exit 1; }
 
@@ -87,12 +90,15 @@ systemctl restart dnsmasq
 
 # ── hostapd (initial config only; the app owns it afterwards) ────────────────
 mkdir -p /etc/hostapd
-if [[ ! -f /etc/hostapd/hostapd.conf ]]; then
+if [[ -n "$FRESH" || ! -f /etc/hostapd/hostapd.conf ]]; then
+  # Only set country_code when a real code is given — hostapd rejects "00" on some drivers.
+  country_line=""
+  [[ -n "$COUNTRY" && "$COUNTRY" != "00" ]] && country_line="country_code=${COUNTRY}"
   cat > /etc/hostapd/hostapd.conf <<EOF
 interface=${AP_IFACE}
 driver=nl80211
 ssid=${AP_SSID}
-country_code=${COUNTRY}
+${country_line}
 hw_mode=g
 channel=6
 ieee80211n=1
@@ -110,7 +116,12 @@ ctrl_interface_group=netdev
 EOF
 fi
 systemctl unmask hostapd
-systemctl enable --now hostapd
+systemctl enable hostapd
+# Non-fatal: hostapd may not start until after a reboot (interface ordering) or
+# may need config tweaks for your adapter — don't abort the whole install for it.
+# Fix it later from the web UI (Settings → Access Point Config) if needed.
+rfkill unblock wlan 2>/dev/null || true
+systemctl start hostapd || echo "WARNING: hostapd did not start — run 'sudo journalctl -xeu hostapd' or fix the config in the web UI after install."
 
 # ── Prefer ethernet over Wi-Fi for upstream ──────────────────────────────────
 cat > /etc/NetworkManager/dispatcher.d/10-route-metric <<EOF
@@ -150,13 +161,17 @@ sudo -u "$APP_USER" python3 -m venv "$APP_DIR/.venv"
 sudo -u "$APP_USER" "$APP_DIR/.venv/bin/pip" install -r "$APP_DIR/requirements.txt"
 
 # ── App: env file, privileged helper, sudoers ───────────────────────────────
-[[ -f "$APP_DIR/travelrouter.env" ]] ||
+if [[ -n "$FRESH" || ! -f "$APP_DIR/travelrouter.env" ]]; then
   sudo -u "$APP_USER" cp "$APP_DIR/travelrouter.env.example" "$APP_DIR/travelrouter.env"
+fi
 install -m 755 "$APP_DIR/deploy/travelrouter-hostapd" /usr/local/sbin/travelrouter-hostapd
 install -m 440 "$APP_DIR/deploy/sudoers.travelrouter" /etc/sudoers.d/travelrouter
 visudo -c
 
 # ── App: service ─────────────────────────────────────────────────────────────
+# Fresh install: drop saved settings/password so the app regenerates defaults.
+[[ -n "$FRESH" ]] && rm -f /var/lib/travelrouter/data.json
+
 ln -sf "$APP_DIR/travelrouter.service" /etc/systemd/system/travelrouter.service
 systemctl daemon-reload
 systemctl enable --now travelrouter
