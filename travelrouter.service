@@ -7,12 +7,30 @@ Wants=network-online.target
 Type=simple
 User=travelrouter
 Group=travelrouter
-WorkingDirectory=/home/travelrouter/RaspberryPiRouter
-ExecStart=/home/travelrouter/RaspberryPiRouter/.venv/bin/python app.py
+WorkingDirectory=/opt/travelrouter
+EnvironmentFile=-/opt/travelrouter/travelrouter.env
+ExecStart=/opt/travelrouter/.venv/bin/python app.py
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
+
+# Mutable state lives outside the code tree so updates never touch it.
+# StateDirectory auto-creates /var/lib/travelrouter (0750, owned by the service user).
+StateDirectory=travelrouter
+Environment=TRAVELROUTER_DATA_FILE_PATH=/var/lib/travelrouter/data.json
+
+# RuntimeDirectory auto-creates /run/travelrouter (cleared on stop); used to
+# stage the hostapd config for the privileged helper.
+RuntimeDirectory=travelrouter
+
+# Modest hardening. NOTE: NoNewPrivileges and ProtectHome are intentionally
+# NOT set — the app relies on sudo (needs privilege escalation) and on the
+# rsync SSH key, both of which those options would break.
+ProtectSystem=full
+PrivateTmp=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
 
 [Install]
 WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Privileged helper for the TravelRouter service.
+#
+# Installed at /usr/local/sbin/travelrouter-hostapd and granted to the service
+# user via /etc/sudoers.d/travelrouter. It exposes exactly two fixed operations
+# so the service never needs blanket root `cat`/`cp` (which would be root-read /
+# root-write of any file). The destination path is hardcoded here, not chosen by
+# the caller.
+set -euo pipefail
+
+CONF=/etc/hostapd/hostapd.conf
+STAGING=/run/travelrouter/hostapd.conf
+
+case "${1:-}" in
+  read)
+    cat -- "$CONF"
+    ;;
+  write)
+    [[ -f "$STAGING" ]] || { echo "staging file missing: $STAGING" >&2; exit 1; }
+    install -m 600 -o root -g root -- "$STAGING" "$CONF"
+    ;;
+  *)
+    echo "usage: travelrouter-hostapd {read|write}" >&2
+    exit 2
+    ;;
+esac

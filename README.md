@@ -266,9 +266,19 @@ sudo netfilter-persistent save
 
 ### App Setup
 
+The app runs as a dedicated `travelrouter` user, with code in `/opt/travelrouter` and mutable state (config + admin password hash) in `/var/lib/travelrouter` — kept out of the code tree so updates never touch it.
+
+**Quick install:** on the Pi, run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DrevOliv/RaspberryPiRouter/main/deploy/install.sh | sudo bash
+```
+
+This clones the repo to `/opt/travelrouter` and does steps 1 and 3–7 below. Then add SSH access (step 2) if you want to pull updates as the `travelrouter` user. The manual steps below explain exactly what the script does.
+
 #### 1. Create the service user
 
-The app runs as a dedicated `travelrouter` user. Unlike a system account, this is a regular user with a home directory and SSH access so you can log in to pull updates.
+A regular user with a home directory and SSH access so you can log in to pull updates.
 
 ```bash
 sudo useradd -m -s /bin/bash travelrouter
@@ -292,42 +302,50 @@ sudo chmod 600 /home/travelrouter/.ssh/authorized_keys
 #### 3. Clone the repository and install dependencies
 
 ```bash
-sudo -u travelrouter git clone git@github.com:DrevOliv/RaspberryPiRouter.git /home/travelrouter/RaspberryPiRouter
-sudo -u travelrouter python3 -m venv /home/travelrouter/RaspberryPiRouter/.venv
-sudo -u travelrouter /home/travelrouter/RaspberryPiRouter/.venv/bin/pip install -r /home/travelrouter/RaspberryPiRouter/requirements.txt
+sudo mkdir -p /opt/travelrouter
+sudo chown travelrouter:travelrouter /opt/travelrouter
+sudo -u travelrouter git clone git@github.com:DrevOliv/RaspberryPiRouter.git /opt/travelrouter
+sudo -u travelrouter python3 -m venv /opt/travelrouter/.venv
+sudo -u travelrouter /opt/travelrouter/.venv/bin/pip install -r /opt/travelrouter/requirements.txt
 ```
 
-#### 4. Install sudoers rules
+#### 4. Create the environment file
 
-The app needs passwordless `sudo` for `nmcli`, `tailscale`, `systemctl` (hostapd), and writing the hostapd config. The last line also lets you restart the app over SSH.
+Lives next to the code and is gitignored, so it survives `git pull`:
 
 ```bash
-# Detect correct binary paths
-NMCLI=$(which nmcli)
-TAILSCALE=$(which tailscale)
+sudo -u travelrouter cp /opt/travelrouter/travelrouter.env.example /opt/travelrouter/travelrouter.env
+# edit /opt/travelrouter/travelrouter.env if you need to change any defaults
+```
 
-sudo tee /etc/sudoers.d/travelrouter > /dev/null << EOF
-travelrouter ALL=(ALL) NOPASSWD: $NMCLI
-travelrouter ALL=(ALL) NOPASSWD: $TAILSCALE
-travelrouter ALL=(ALL) NOPASSWD: /usr/bin/cp
-travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hostapd
-travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hostapd
-travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
-travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart travelrouter
-EOF
+#### 5. Install the privileged hostapd helper
 
-sudo chmod 440 /etc/sudoers.d/travelrouter
+The app reads and writes `/etc/hostapd/hostapd.conf` through a small fixed-purpose helper rather than blanket root access:
+
+```bash
+sudo install -m 755 /opt/travelrouter/deploy/travelrouter-hostapd /usr/local/sbin/travelrouter-hostapd
+```
+
+#### 6. Install sudoers rules
+
+The app needs passwordless `sudo` for `nmcli`, `tailscale`, `mount`/`umount`, `systemctl` (hostapd), the app restart, and the hostapd helper. A template is included:
+
+```bash
+sudo install -m 440 /opt/travelrouter/deploy/sudoers.travelrouter /etc/sudoers.d/travelrouter
+
+# If `which nmcli` / `which tailscale` differ from /usr/bin, fix the paths:
+sudo visudo -f /etc/sudoers.d/travelrouter
 
 # Validate
 sudo visudo -c
 ```
 
-#### 5. Install and enable the service
+#### 7. Install and enable the service
 
-The repo includes `travelrouter.service` with paths hardcoded to `/home/travelrouter`. Symlink it and start:
+The unit creates `/var/lib/travelrouter` (data) and `/run/travelrouter` (runtime staging) automatically.
 
 ```bash
-sudo ln -sf /home/travelrouter/RaspberryPiRouter/travelrouter.service /etc/systemd/system/travelrouter.service
+sudo ln -sf /opt/travelrouter/travelrouter.service /etc/systemd/system/travelrouter.service
 sudo systemctl daemon-reload
 sudo systemctl enable --now travelrouter
 ```
@@ -347,10 +365,12 @@ SSH in as `travelrouter` and pull:
 
 ```bash
 ssh travelrouter@<pi-ip>
-cd ~/RaspberryPiRouter
+cd /opt/travelrouter
 git pull
 sudo systemctl restart travelrouter
 ```
+
+Your config, admin password, and `travelrouter.env` live outside the code tree (or are gitignored), so they're untouched. If `requirements.txt` changed, also run `.venv/bin/pip install -r requirements.txt`.
 
 ---
 
@@ -368,14 +388,14 @@ Change it immediately from the Settings page.
 
 ## Configuration
 
-App behaviour can be overridden with environment variables. Add them to the `[Service]` block in the systemd unit as `Environment=KEY=value`.
+App behaviour can be overridden with environment variables. Put them in `/opt/travelrouter/travelrouter.env` (loaded by the systemd unit); see `travelrouter.env.example`.
 
 | Variable | Description | Default |
 | --- | --- | --- |
 | `TRAVELROUTER_AUTH_COOKIE_NAME` | Session cookie name | `tr_session` |
 | `TRAVELROUTER_AUTH_SESSION_TTL_SECONDS` | Session lifetime in seconds | `86400` |
 | `TRAVELROUTER_AUTH_SECURE_COOKIE` | Set secure flag on cookies (use behind HTTPS) | `false` |
-| `TRAVELROUTER_DATA_FILE_PATH` | Path to the JSON config file | `./data/data.json` |
+| `TRAVELROUTER_DATA_FILE_PATH` | Path to the JSON data file | `/var/lib/travelrouter/data.json` (set by the unit) |
 
 ---
 
@@ -403,19 +423,23 @@ The Python app communicates with hostapd via its UNIX control socket (`/var/run/
 .
 ├── app.py
 ├── requirements.txt
+├── travelrouter.service            # systemd unit (symlinked into /etc/systemd/system)
+├── travelrouter.env.example        # copy to travelrouter.env (gitignored)
+├── deploy/
+│   ├── install.sh                  # one-line bootstrap installer (clones + sets up)
+│   ├── travelrouter-hostapd        # privileged helper → /usr/local/sbin
+│   └── sudoers.travelrouter        # sudoers template → /etc/sudoers.d/travelrouter
 ├── TravelRouter/
-│   ├── __init__.py
-│   ├── static/
-│   │   ├── index.html
-│   │   ├── login.html
-│   │   ├── settings.html
-│   │   └── style.css
-│   ├── helpers/
-│   ├── config_file/
+│   ├── __init__.py                 # app factory, routers, router-level auth
+│   ├── static/                     # index / login / settings / drives html + style.css
+│   ├── helpers/                    # run_command, api_response
+│   ├── config_file/                # DataManager + data models
 │   └── components/
-│       ├── auth/
-│       ├── settings/
-│       ├── tailscale/
+│       ├── auth/                   # session login + password hashing
+│       ├── settings/               # /settings/config, rsync destination
+│       ├── tailscale/              # exit-node + up/down control
+│       ├── drive/                  # drive discovery + mount/unmount
+│       ├── rsync/                  # background rsync jobs + SSE stream + remote ops
 │       └── wifi/
 │           ├── hostapd.py          # HostapdController — socket comms + service control
 │           ├── hostapd_config.py   # Config file model
@@ -428,12 +452,16 @@ The Python app communicates with hostapd via its UNIX control socket (`/var/run/
 
 ## API Surface
 
+All endpoints except `/api/auth/login` and `/api/auth/logout` require an authenticated session.
+
 | Area | Endpoints |
 | --- | --- |
 | Auth | `/api/auth/login`, `/api/auth/logout`, `/api/auth/change-password`, `/api/auth/session` |
 | Settings | `/settings/config`, `/settings/rsync/destination` |
-| Wi-Fi | `/wifi/wifi-live`, `/wifi/connect`, `/wifi/disconnect`, `/wifi/ap-qr`, `/settings/wifi/ap-ssid`, `/settings/wifi/ap-password` |
+| Wi-Fi | `/wifi/wifi-live`, `/wifi/connect`, `/wifi/disconnect`, `/wifi/ap-qr`, `/settings/wifi`, `/settings/wifi/ap-ssid`, `/settings/wifi/ap-password` |
 | Tailscale | `/tailscale/status`, `/tailscale/selection`, `/tailscale/set-exit-node`, `/tailscale/disable-exit-node`, `/tailscale/up`, `/tailscale/down` |
+| Drive | `/drive/available_drives`, `/drive/mount`, `/drive/unmount`, `/drive/folders` |
+| Rsync | `/rsync/jobs` (GET/POST), `/rsync/jobs/{id}` (DELETE), `/rsync/stream` (SSE), `/rsync/remote/test`, `/rsync/remote/folder` |
 
 Full interactive docs: `http://<pi-ip>:8080/docs`
 
@@ -447,13 +475,13 @@ Full interactive docs: `http://<pi-ip>:8080/docs`
 
 **wlan1 address not assigned** — Check `dhcpcd.conf` and restart dhcpcd: `sudo systemctl restart dhcpcd`. Verify with `ip addr show wlan1`.
 
-**App cannot write hostapd config** — Verify the `travelrouter` user has `sudo /usr/bin/cp` in `/etc/sudoers.d/travelrouter`.
+**App cannot write hostapd config** — Verify the helper is installed at `/usr/local/sbin/travelrouter-hostapd` and the `travelrouter` user has the matching `travelrouter-hostapd read`/`write` rules in `/etc/sudoers.d/travelrouter` (`visudo -c` to validate).
 
 ---
 
 ## Security Note
 
-This project is designed for a trusted personal network. Review route-level authentication and sudoers permissions before exposing it beyond your local network.
+This project is designed for a trusted personal network. The app runs unprivileged and escalates only through the specific commands granted in `/etc/sudoers.d/travelrouter`; the hostapd config write is locked to the `travelrouter-hostapd` helper rather than a blanket `cp`. The `nmcli`, `tailscale`, and `mount`/`umount` grants are still broad by nature, so review the sudoers rules and the route-level authentication before exposing the app beyond your local network. It serves plain HTTP — put it behind a TLS reverse proxy (and set `TRAVELROUTER_AUTH_SECURE_COOKIE=1`) if it's reachable from anywhere untrusted.
 
 ---
 

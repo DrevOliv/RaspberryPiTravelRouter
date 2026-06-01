@@ -1,12 +1,16 @@
 import os
 import socket
-import tempfile
 from pathlib import Path
 
 from TravelRouter.components.wifi.hostapd_config import HostapdConfig
 from TravelRouter.config_file.config_file_funcs import DataManager
 from TravelRouter.helpers.api_response import ApiResponse
 from TravelRouter.helpers.run_command import run_command
+
+# Privileged helper + staging path used to read/write the hostapd config without
+# granting the service blanket root cat/cp. See deploy/travelrouter-hostapd.
+_HOSTAPD_HELPER = os.getenv("TRAVELROUTER_HOSTAPD_HELPER", "/usr/local/sbin/travelrouter-hostapd")
+_HOSTAPD_STAGING = Path(os.getenv("TRAVELROUTER_HOSTAPD_STAGING", "/run/travelrouter/hostapd.conf"))
 
 
 class HostapdController:
@@ -74,7 +78,7 @@ class HostapdController:
             "wpa_passphrase": self.hostapd_config.wpa_passphrase,
         }
 
-        read_result = run_command(["sudo", "cat", str(self.config_path)])
+        read_result = run_command(["sudo", _HOSTAPD_HELPER, "read"])
         if read_result.success and read_result.stdout:
             updated_keys: set[str] = set()
             new_lines: list[str] = []
@@ -94,11 +98,15 @@ class HostapdController:
         else:
             content = str(self.hostapd_config)
 
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as f:
-            f.write(content)
-            tmp_path = f.name
-        result = run_command(["sudo", "cp", tmp_path, str(self.config_path)])
-        os.unlink(tmp_path)
+        # Stage the new config where only the service user can write, then let the
+        # privileged helper install it to the real (root-owned) hostapd path.
+        try:
+            _HOSTAPD_STAGING.parent.mkdir(parents=True, exist_ok=True)
+            _HOSTAPD_STAGING.write_text(content, encoding="utf-8")
+        except OSError as exc:
+            return ApiResponse(success=False, msg={"error": f"could not stage config: {exc}"}, msg_type="json")
+
+        result = run_command(["sudo", _HOSTAPD_HELPER, "write"])
         if not result.success:
             return ApiResponse(success=False, msg={"error": result.stderr}, msg_type="json")
         return ApiResponse(success=True, msg={"written": str(self.config_path)}, msg_type="json")
