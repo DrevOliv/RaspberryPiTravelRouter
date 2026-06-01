@@ -5,153 +5,458 @@
 ![Uvicorn](https://img.shields.io/badge/Uvicorn-ASGI-499848?logo=uvicorn&logoColor=white)
 ![License](https://img.shields.io/badge/License-CC0--1.0-lightgrey)
 
-Turn a Raspberry Pi into a portable travel router with a small web UI for Wi-Fi control, private access-point settings, Tailscale exit-node management, and admin login.
+## About
 
-## Overview
+RaspberryPiRouter turns a Raspberry Pi into a portable travel router with a browser-based control panel. Plug it in at a hotel or cafe, connect it to the local Wi-Fi, and all your devices join your own private network — with a consistent IP range, optional Tailscale VPN routing, and no per-device configuration.
 
-RaspberryPiRouter is a FastAPI-based control panel for managing a Raspberry Pi travel-router setup from your browser. It serves a dashboard, a settings page, and a login page, and exposes API endpoints for upstream Wi-Fi, hotspot configuration, Tailscale status/actions, and persisted router settings.
+The web UI lets you:
 
-The project stores app configuration in a local `data.json` file and uses system tools such as `nmcli`, `ip`, and `tailscale` to apply network changes on the host.
+- Scan for and connect to upstream Wi-Fi networks (or use ethernet)
+- Manage your private access point — change the SSID, password, and view connected devices
+- Select a Tailscale exit node to route all AP traffic through a VPN, or disable it
+- Change the admin password and configure app settings
 
-## Features
+Internally, the private AP is managed by **hostapd** (communicating directly over its UNIX control socket), while the upstream connection is handled by **nmcli**. The backend is a FastAPI app served over Uvicorn.
 
-- Web dashboard for upstream Wi-Fi status, nearby network scanning, and connected-device display
-- Connect and disconnect from upstream Wi-Fi networks
-- View a QR code for the private access-point password
-- Update access-point SSID and password from the browser
-- View Tailscale status and toggle Tailscale on/off
-- Save a preferred Tailscale exit node and enable/disable it
-- Session-based admin login with password change support
-- Built-in OpenAPI docs at `/docs`
+---
 
-## Screenshots
+## Installation
 
+### Hardware
 
-![Dashboard](docs/screenshots/dashboard.png)
+- Raspberry Pi (tested on Pi 4 / Pi Zero 2W)
+- Two Wi-Fi interfaces:
+  - `wlan0` — connects to the upstream internet (hotel/cafe Wi-Fi)
+  - `wlan1` — broadcasts the private access point
 
+A USB Wi-Fi adapter is needed for the second interface. See [`docs/Rtl8812au rpi install guide.md`](docs/Rtl8812au%20rpi%20install%20guide.md) for driver setup on RTL8812AU adapters.
 
-## Tech Stack
+---
 
-- Python
-- FastAPI
-- Uvicorn
-- Pydantic
-- Vanilla HTML/CSS/JavaScript
-- NetworkManager CLI (`nmcli`)
-- Tailscale CLI
+### System Setup
 
-## Requirements
+Complete these steps once on the Pi before running the app.
 
-- Raspberry Pi OS or another Linux environment with NetworkManager
-- Python 3.10+
-- `nmcli`
-- `tailscale`
-- `sudo` permissions for network-management commands
-
-## Quick Start
-
-Clone the repository:
+### 1. Install packages
 
 ```bash
-git clone git@github.com:DrevOliv/RaspberryPiRouter.git
-cd RaspberryPiRouter
+sudo apt update
+sudo apt install -y hostapd dnsmasq network-manager
 ```
 
-Create and activate a virtual environment:
+Install Tailscale using their official script:
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+curl -fsSL https://tailscale.com/install.sh | sh
 ```
 
-Install dependencies:
+Unmask and stop hostapd — it will be started by the app later:
 
 ```bash
-pip install -r requirements.txt
+sudo systemctl unmask hostapd
+sudo systemctl stop hostapd
+sudo systemctl disable hostapd
 ```
 
-Run the app:
+Stop dnsmasq for now too:
 
 ```bash
-python app.py
+sudo systemctl stop dnsmasq
 ```
 
-Open the web UI:
+---
 
-- Dashboard: `http://localhost:8080/`
-- Settings: `http://localhost:8080/settings-page`
-- Login: `http://localhost:8080/login`
-- API docs: `http://localhost:8080/docs`
+### 2. Enable NetworkManager and configure interfaces
+
+Enable and start NetworkManager so it manages `wlan0` (upstream Wi-Fi):
+
+```bash
+sudo systemctl enable --now NetworkManager
+```
+
+Tell NetworkManager to ignore `wlan1` — hostapd and dnsmasq own that interface:
+
+```bash
+sudo mkdir -p /etc/NetworkManager/conf.d
+sudo tee /etc/NetworkManager/conf.d/unmanaged.conf > /dev/null << 'EOF'
+[keyfile]
+unmanaged-devices=interface-name:wlan1
+EOF
+
+sudo systemctl restart NetworkManager
+```
+
+Verify `wlan0` shows as `managed` and `wlan1` as `unmanaged`:
+
+```bash
+nmcli device status
+```
+
+Expected output:
+
+```
+DEVICE   TYPE      STATE        CONNECTION
+wlan0    wifi      disconnected --
+wlan1    wifi      unmanaged    --
+```
+
+`wlan0` will show `disconnected` until you connect to an upstream network through the app.
+
+---
+
+### 3. Assign a static IP to the AP interface
+
+Create a systemd oneshot service that assigns the IP at boot, before hostapd starts. This requires no extra packages and has no interaction with NetworkManager.
+
+```bash
+sudo tee /etc/systemd/system/wlan1-static-ip.service > /dev/null << 'EOF'
+[Unit]
+Description=Static IP for wlan1 (AP interface)
+Before=hostapd.service
+Wants=network.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/ip addr add 192.168.50.1/24 dev wlan1
+ExecStart=/usr/sbin/iw dev wlan1 set power_save off
+ExecStop=/usr/sbin/ip addr del 192.168.50.1/24 dev wlan1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now wlan1-static-ip.service
+```
+
+Verify:
+
+```bash
+ip addr show wlan1
+```
+
+---
+
+### 4. Configure dnsmasq (DHCP for connected devices)
+
+```bash
+sudo tee /etc/dnsmasq.d/travelrouter.conf > /dev/null << 'EOF'
+interface=wlan1
+dhcp-range=192.168.50.2,192.168.50.100,12h
+dhcp-option=3,192.168.50.1
+dhcp-option=6,8.8.8.8,1.1.1.1
+EOF
+
+sudo systemctl enable dnsmasq
+sudo systemctl start dnsmasq
+```
+
+---
+
+### 5. Write the initial hostapd config
+
+The app will overwrite this file whenever you change SSID or password through the UI, but it needs an initial config to start from.
+
+> **Change `country_code`** to your country before proceeding.
+> Using the wrong country code may violate local radio regulations.
+
+```bash
+sudo mkdir -p /etc/hostapd
+
+sudo tee /etc/hostapd/hostapd.conf > /dev/null << 'EOF'
+interface=wlan1
+driver=nl80211
+
+ssid=RouterPi
+
+country_code=SE
+
+hw_mode=g
+channel=6
+ieee80211n=1
+wmm_enabled=1
+
+wpa=2
+wpa_key_mgmt=WPA-PSK SAE
+rsn_pairwise=CCMP
+wpa_passphrase=Password123
+
+ieee80211w=1
+sae_require_mfp=1
+
+auth_algs=1
+ignore_broadcast_ssid=0
+ctrl_interface=/var/run/hostapd
+ctrl_interface_group=netdev
+EOF
+```
+
+Enable and start hostapd:
+
+```bash
+sudo systemctl enable hostapd
+sudo systemctl start hostapd
+```
+
+Verify the control socket exists:
+
+```bash
+ls /var/run/hostapd/wlan1
+```
+
+---
+
+### 6. Set upstream interface priority (eth0 over wlan0)
+
+When both ethernet and Wi-Fi are connected, eth0 should be preferred. Create a NetworkManager dispatcher script to set route metrics automatically whenever an interface comes up:
+
+```bash
+sudo tee /etc/NetworkManager/dispatcher.d/10-route-metric > /dev/null << 'EOF'
+#!/bin/bash
+if [ "$2" = "up" ]; then
+    if [ "$DEVICE_IFACE" = "wlan0" ]; then
+        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 100
+    fi
+    if [ "$DEVICE_IFACE" = "eth0" ]; then
+        nmcli connection modify "$CONNECTION_UUID" ipv4.route-metric 50
+    fi
+fi
+EOF
+
+sudo chmod +x /etc/NetworkManager/dispatcher.d/10-route-metric
+```
+
+Lower metric = higher priority, so eth0 (50) beats wlan0 (100).
+
+---
+
+### 7. Enable IP forwarding and NAT
+
+```bash
+# Persist IP forwarding across reboots
+sudo tee /etc/sysctl.d/99-travelrouter.conf > /dev/null << 'EOF'
+net.ipv4.ip_forward=1
+EOF
+
+sudo sysctl -p /etc/sysctl.d/99-travelrouter.conf
+
+# wlan0 (upstream Wi-Fi)
+sudo iptables -t nat -A POSTROUTING -o wlan0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan1 -o wlan0 -j ACCEPT
+sudo iptables -A FORWARD -i wlan0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# eth0 (ethernet — used when connected, preferred over wlan0)
+sudo iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan1 -o eth0 -j ACCEPT
+sudo iptables -A FORWARD -i eth0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# tailscale0 (when Tailscale exit node is active)
+# These rules are inactive when Tailscale is off — no impact on normal routing
+sudo iptables -t nat -A POSTROUTING -o tailscale0 -j MASQUERADE
+sudo iptables -A FORWARD -i wlan1 -o tailscale0 -j ACCEPT
+sudo iptables -A FORWARD -i tailscale0 -o wlan1 -m state --state RELATED,ESTABLISHED -j ACCEPT
+
+# Save rules so they survive a reboot
+sudo apt install -y iptables-persistent
+sudo netfilter-persistent save
+```
+
+---
+
+### App Setup
+
+#### 1. Create the service user
+
+The app runs as a dedicated `travelrouter` user. Unlike a system account, this is a regular user with a home directory and SSH access so you can log in to pull updates.
+
+```bash
+sudo useradd -m -s /bin/bash travelrouter
+
+# Allow the service user to reach the hostapd control socket
+sudo usermod -aG netdev travelrouter
+```
+
+#### 2. Set up SSH access
+
+Copy your public key so you can log in as `travelrouter` later to pull updates:
+
+```bash
+sudo mkdir -p /home/travelrouter/.ssh
+sudo cp ~/.ssh/authorized_keys /home/travelrouter/.ssh/authorized_keys
+sudo chown -R travelrouter:travelrouter /home/travelrouter/.ssh
+sudo chmod 700 /home/travelrouter/.ssh
+sudo chmod 600 /home/travelrouter/.ssh/authorized_keys
+```
+
+#### 3. Clone the repository and install dependencies
+
+```bash
+sudo -u travelrouter git clone git@github.com:DrevOliv/RaspberryPiRouter.git /home/travelrouter/RaspberryPiRouter
+sudo -u travelrouter python3 -m venv /home/travelrouter/RaspberryPiRouter/.venv
+sudo -u travelrouter /home/travelrouter/RaspberryPiRouter/.venv/bin/pip install -r /home/travelrouter/RaspberryPiRouter/requirements.txt
+```
+
+#### 4. Install sudoers rules
+
+The app needs passwordless `sudo` for `nmcli`, `tailscale`, `systemctl` (hostapd), and writing the hostapd config. The last line also lets you restart the app over SSH.
+
+```bash
+# Detect correct binary paths
+NMCLI=$(which nmcli)
+TAILSCALE=$(which tailscale)
+
+sudo tee /etc/sudoers.d/travelrouter > /dev/null << EOF
+travelrouter ALL=(ALL) NOPASSWD: $NMCLI
+travelrouter ALL=(ALL) NOPASSWD: $TAILSCALE
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/cp
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl start hostapd
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop hostapd
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart hostapd
+travelrouter ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart travelrouter
+EOF
+
+sudo chmod 440 /etc/sudoers.d/travelrouter
+
+# Validate
+sudo visudo -c
+```
+
+#### 5. Install and enable the service
+
+The repo includes `travelrouter.service` with paths hardcoded to `/home/travelrouter`. Symlink it and start:
+
+```bash
+sudo ln -sf /home/travelrouter/RaspberryPiRouter/travelrouter.service /etc/systemd/system/travelrouter.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now travelrouter
+```
+
+Check it started correctly:
+
+```bash
+sudo systemctl status travelrouter
+journalctl -u travelrouter -f
+```
+
+---
+
+## Updating
+
+SSH in as `travelrouter` and pull:
+
+```bash
+ssh travelrouter@<pi-ip>
+cd ~/RaspberryPiRouter
+git pull
+sudo systemctl restart travelrouter
+```
+
+---
 
 ## First Login
 
-On first startup, the app creates a default admin password:
+Open `http://<pi-ip>:8080/` in your browser. The default password is:
 
-```text
+```
 changeme
 ```
 
-Change it from the Settings page after signing in.
+Change it immediately from the Settings page.
+
+---
 
 ## Configuration
 
-The app reads and writes router settings through `data/data.json` by default. You can override runtime behavior with these environment variables:
+App behaviour can be overridden with environment variables. Add them to the `[Service]` block in the systemd unit as `Environment=KEY=value`.
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `TRAVELROUTER_AUTH_COOKIE_NAME` | Name of the session cookie | `tr_session` |
+| `TRAVELROUTER_AUTH_COOKIE_NAME` | Session cookie name | `tr_session` |
 | `TRAVELROUTER_AUTH_SESSION_TTL_SECONDS` | Session lifetime in seconds | `86400` |
-| `TRAVELROUTER_AUTH_SECURE_COOKIE` | Set secure cookies when running behind HTTPS | `false` |
+| `TRAVELROUTER_AUTH_SECURE_COOKIE` | Set secure flag on cookies (use behind HTTPS) | `false` |
 | `TRAVELROUTER_DATA_FILE_PATH` | Path to the JSON config file | `./data/data.json` |
 
-Example:
+---
 
-```bash
-export TRAVELROUTER_AUTH_SECURE_COOKIE=true
-export TRAVELROUTER_DATA_FILE_PATH=/etc/travelrouter/data.json
-python app.py
+## How It Works
+
 ```
+          Internet
+             │
+           wlan0  ← nmcli connects this to upstream Wi-Fi
+             │
+        [Raspberry Pi]
+             │
+           wlan1  ← hostapd broadcasts the private AP
+             │
+       Connected devices  ← dnsmasq assigns IPs (192.168.50.x)
+```
+
+The Python app communicates with hostapd via its UNIX control socket (`/var/run/hostapd/wlan1`) to list clients, reload config, and manage the service. Config changes (SSID, password) are written to `/etc/hostapd/hostapd.conf` and applied with a `RELOAD` command over the socket.
+
+---
 
 ## Project Structure
 
-```text
+```
 .
 ├── app.py
 ├── requirements.txt
-├── data/
-│   └── data.json
-├── tests/
-│   ├── test_wifi_api.py
-│   └── test_tailscale_api.py
-└── TravelRouter/
-    ├── __init__.py
-    ├── static/
-    │   ├── index.html
-    │   ├── login.html
-    │   ├── settings.html
-    │   └── style.css
-    ├── helpers/
-    ├── config_file/
-    └── components/
-        ├── auth/
-        ├── settings/
-        ├── tailscale/
-        └── wifi/
+├── TravelRouter/
+│   ├── __init__.py
+│   ├── static/
+│   │   ├── index.html
+│   │   ├── login.html
+│   │   ├── settings.html
+│   │   └── style.css
+│   ├── helpers/
+│   ├── config_file/
+│   └── components/
+│       ├── auth/
+│       ├── settings/
+│       ├── tailscale/
+│       └── wifi/
+│           ├── hostapd.py          # HostapdController — socket comms + service control
+│           ├── hostapd_config.py   # Config file model
+│           ├── system_api.py       # nmcli wrappers for upstream Wi-Fi
+│           ├── functions.py        # Parsing helpers
+│           └── api_routes.py
 ```
+
+---
 
 ## API Surface
 
 | Area | Endpoints |
 | --- | --- |
 | Auth | `/api/auth/login`, `/api/auth/logout`, `/api/auth/change-password`, `/api/auth/session` |
-| Settings | `/settings/config` |
-| Wi-Fi | `/wifi/wifi-live`, `/wifi/connect`, `/wifi/disconnect`, `/wifi/ap-qr`, `/settings/wifi`, `/settings/wifi/ap-ssid`, `/settings/wifi/ap-password` |
+| Settings | `/settings/config`, `/settings/rsync/destination` |
+| Wi-Fi | `/wifi/wifi-live`, `/wifi/connect`, `/wifi/disconnect`, `/wifi/ap-qr`, `/settings/wifi/ap-ssid`, `/settings/wifi/ap-password` |
 | Tailscale | `/tailscale/status`, `/tailscale/selection`, `/tailscale/set-exit-node`, `/tailscale/disable-exit-node`, `/tailscale/up`, `/tailscale/down` |
+
+Full interactive docs: `http://<pi-ip>:8080/docs`
+
+---
+
+## Troubleshooting
+
+**hostapd socket not found** — hostapd is not running or `ctrl_interface` is not set in the config. Check `systemctl status hostapd` and verify `/var/run/hostapd/wlan1` exists.
+
+**Devices connect but have no internet** — IP forwarding or NAT rules are missing. Re-run step 6 of system setup and verify with `sudo iptables -t nat -L`.
+
+**wlan1 address not assigned** — Check `dhcpcd.conf` and restart dhcpcd: `sudo systemctl restart dhcpcd`. Verify with `ip addr show wlan1`.
+
+**App cannot write hostapd config** — Verify the `travelrouter` user has `sudo /usr/bin/cp` in `/etc/sudoers.d/travelrouter`.
+
+---
 
 ## Security Note
 
-This project is designed for a trusted router/admin environment. Review route-level authentication and system-command permissions carefully before exposing it beyond your local network.
+This project is designed for a trusted personal network. Review route-level authentication and sudoers permissions before exposing it beyond your local network.
+
+---
 
 ## License
 
-This project is released under [CC0 1.0 Universal](LICENSE).
+Released under [CC0 1.0 Universal](LICENSE).

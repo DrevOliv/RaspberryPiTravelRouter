@@ -1,44 +1,37 @@
+from enum import Enum
+
 from pydantic import BaseModel, Field
 
 
-class MountRequest(BaseModel):
-    device: str = Field(..., description="e.g. /dev/sdb1")
-    label: str = Field(
-        ...,
-        description="e.g. my_drive  -> mounted at /mnt/drives/my_drive",
-    )
+class JobStatus(str, Enum):
+    RUNNING   = "running"
+    COMPLETED = "completed"
+    FAILED    = "failed"
+    STOPPED   = "stopped"
 
 
-class MountPoint(BaseModel):
-    mount_point: str = Field(..., description="e.g. /mnt/drives/my_drive")
+class StartJobRequest(BaseModel):
+    source:      str        = Field(...,  description="e.g. /mnt/drives/media/")
+    destination: str        = Field(...,  description="e.g. user@homeserver:/backup/")
+    ssh_key:     str | None = Field(None, description="Path to SSH private key")
+    label:       str | None = Field(None, description="Human-readable job name")
 
 
-class FolderRequest(BaseModel):
-    mount_point: str = Field(..., description="e.g. /mnt/drives/my_drive")
-    sub_path: str = Field(
-        "",
-        description="Optional folder path inside the mount point, e.g. Movies or /mnt/drives/my_drive/Movies",
-    )
+class RsyncProgress(BaseModel):
+    bytes:   int
+    percent: int
+    speed:   str
+    eta:     str
 
 
-class AvailableDevice(BaseModel):
-    device: str = Field(..., description="e.g. /dev/sdb1")
-    name: str = Field(..., description="e.g. sdb1")
-    size: str = Field(..., description="e.g. 10G")
-    fstype: str = Field(..., description="e.g. ext4")
-    label: str | None = Field(None, description="e.g. my_drive")
-    parent: str = Field(..., description="e.g. sdb")
-
-
-class AvailableDevices(BaseModel):
-    devices: list[AvailableDevice] = Field(..., description="e.g. /dev/sdb1")
-
-
-class Dir(BaseModel):
-    name: str = Field(..., description="e.g. my_drive")
-    size: int = Field(..., description="e.g. 10")
-    path: str = Field(..., description="e.g. /mnt/drives/my_drive")
-
-
-class Dirs(BaseModel):
-    dirs: list[Dir] = Field(..., description="e.g. list of directories")
+class JobInfo(BaseModel):
+    id:          str
+    label:       str | None
+    source:      str
+    destination: str
+    status:      JobStatus
+    started_at:  str
+    ended_at:    str | None
+    exit_code:   int | None
+    pid:         int | None
+    log_lines:   list[str] = []

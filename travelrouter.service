@@ -1,0 +1,18 @@
+[Unit]
+Description=TravelRouter Web Service
+After=network-online.target hostapd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=travelrouter
+Group=travelrouter
+WorkingDirectory=/home/travelrouter/RaspberryPiRouter
+ExecStart=/home/travelrouter/RaspberryPiRouter/.venv/bin/python app.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

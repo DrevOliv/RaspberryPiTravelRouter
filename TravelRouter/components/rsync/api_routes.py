@@ -1,152 +1,62 @@
-import json
-import os
-
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from TravelRouter.helpers.api_response import ApiResponse
-from TravelRouter.helpers.run_command import run_in_thread
 
-from TravelRouter.components.rsync.data_models import FolderRequest, MountPoint, MountRequest
-from TravelRouter.components.rsync.functions import (
-    delete_dir,
-    find_device_mount_point,
-    make_dirs,
-    parse_lsblk,
-    resolve_folder_path,
-    resolve_mount_path,
-    scan_dir,
-)
-from TravelRouter.components.rsync.system_api import (
-    get_connected_drives,
-    mount_drive,
-    unmount_drive,
-)
+from TravelRouter.components.rsync.api_stream import stream_all_jobs
+from TravelRouter.components.rsync.data_models import StartJobRequest
+from TravelRouter.components.rsync.system_api import job_manager
 
 router = APIRouter()
 
 
+@router.post(
+    "/rsync/jobs",
+    response_model=ApiResponse,
+    tags=["rsync"],
+    summary="Start an rsync job",
+    description="Launch an rsync transfer in the background. Returns immediately.",
+)
+async def api_start_job(body: StartJobRequest):
+    job = job_manager.start(body)
+    return ApiResponse(success=True, msg=job.to_info(), msg_type="json")
+
+
 @router.get(
-    "/drive/available_drives",
+    "/rsync/jobs",
     response_model=ApiResponse,
     tags=["rsync"],
-    summary="Get the connected drives",
-    description="Get all the connected and available drives",
+    summary="List all rsync jobs",
+    description="Returns all jobs — running and finished — since the server started.",
 )
-async def api_get_available_drives():
-    result = await run_in_thread(get_connected_drives)
-    if not result.success:
-        return ApiResponse(msg=f"error getting connected drives {result.stderr}")
-
-    try:
-        drives = parse_lsblk(json.loads(result.stdout or "{}"))
-    except json.JSONDecodeError:
-        return ApiResponse(msg="error parsing connected drives output")
-
-    return ApiResponse(success=True, msg=drives, msg_type="json")
+async def api_list_jobs():
+    jobs = [j.to_info() for j in job_manager.list_jobs()]
+    return ApiResponse(success=True, msg=jobs, msg_type="json")
 
 
-@router.post(
-    "/drive/mount",
+@router.delete(
+    "/rsync/jobs/{job_id}",
     response_model=ApiResponse,
     tags=["rsync"],
-    summary="Mount the drives",
-    description="Mount the drive",
+    summary="Remove an rsync job",
+    description="Stops the job if still running, then removes it from the registry.",
 )
-async def api_mount_drive(body: MountRequest):
-    device = body.device.strip()
-    label = body.label.strip()
-    if not device or not label:
-        return ApiResponse(msg="Missing data in post request")
-
-    try:
-        mount_point = await run_in_thread(make_dirs, label)
-    except ValueError as error:
-        return ApiResponse(msg=str(error))
-    except OSError as error:
-        return ApiResponse(msg=f"error creating mount point {error}")
-
-    if os.path.ismount(mount_point):
-        return ApiResponse(
-            success=True,
-            msg={"drive": label, "mount_point": mount_point},
-            msg_type="json",
-        )
-
-    existing_mount_point = await run_in_thread(find_device_mount_point, device)
-    if existing_mount_point:
-        return ApiResponse(
-            success=True,
-            msg={"drive": label, "mount_point": existing_mount_point},
-            msg_type="json",
-        )
-
-    result = await run_in_thread(mount_drive, device, mount_point)
-    if not result.success:
-        try:
-            await run_in_thread(delete_dir, mount_point)
-        except (OSError, ValueError):
-            pass
-        return ApiResponse(msg=f"error mounting drive {result.stderr}")
-
-    return ApiResponse(success=True, msg={"drive": label, "mount_point": mount_point}, msg_type="json")
+async def api_remove_job(job_id: str):
+    job = job_manager.remove(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+    return ApiResponse(success=True, msg=job.to_info(), msg_type="json")
 
 
-@router.post(
-    "/drive/unmount",
-    response_model=ApiResponse,
+@router.get(
+    "/rsync/stream",
     tags=["rsync"],
-    summary="Unmount a drive",
-    description="Unmount a drive and remove its mount directory",
+    summary="Stream output from all active jobs (SSE)",
+    description=(
+        "Single Server-Sent Events connection that covers every job. "
+        "Emits 'job_start' when a new job is detected, 'progress' and 'line' "
+        "events tagged with job_id while jobs run, and 'job_done' when each "
+        "job finishes. The stream stays open indefinitely."
+    ),
 )
-async def api_unmount_drive(body: MountPoint):
-    mount_point = body.mount_point.strip()
-    if not mount_point:
-        return ApiResponse(msg="Missing mount point")
-
-    try:
-        mount_point = resolve_mount_path(mount_point)
-    except ValueError as error:
-        return ApiResponse(msg=str(error))
-
-    if not os.path.ismount(mount_point):
-        return ApiResponse(msg="Mount point does not exist")
-
-    result = await run_in_thread(unmount_drive, mount_point)
-    if not result.success:
-        return ApiResponse(msg=f"error unmounting drive {result.stderr}")
-
-    try:
-        await run_in_thread(delete_dir, mount_point)
-    except (OSError, ValueError) as error:
-        return ApiResponse(msg=f"Drive unmounted, but cleanup failed {error}")
-
-    return ApiResponse(success=True, msg="Drive unmounted")
-
-
-@router.post(
-    "/drive/folders",
-    response_model=ApiResponse,
-    tags=["rsync"],
-    summary="Get folders on a mounted drive",
-    description="List child folders under a mounted drive path",
-)
-async def api_get_folders_struct(body: FolderRequest):
-    mount_point = body.mount_point.strip()
-    if not mount_point:
-        return ApiResponse(msg="Missing mount point")
-
-    try:
-        mount_point = resolve_mount_path(mount_point)
-        abs_path = resolve_folder_path(mount_point, body.sub_path)
-    except ValueError as error:
-        return ApiResponse(msg=str(error))
-
-    if not os.path.ismount(mount_point):
-        return ApiResponse(msg="Mount point does not exist")
-
-    if not os.path.isdir(abs_path):
-        return ApiResponse(msg="Path not found")
-
-    dirs = await run_in_thread(scan_dir, abs_path)
-
-    return ApiResponse(success=True, msg=dirs, msg_type="json")
+async def api_stream_all_jobs():
+    return stream_all_jobs(job_manager)

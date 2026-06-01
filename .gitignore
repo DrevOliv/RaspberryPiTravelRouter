@@ -5,6 +5,7 @@ __pycache__/
 
 data
 
+.vscode
 # C extensions
 *.so
 
@@ -27,6 +28,10 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+
+Bilder
+
+.devcontainer
 
 # PyInstaller
 #  Usually these files are written by a python script from a template

@@ -1,9 +1,6 @@
 import io
-import json
-import os
 
 from TravelRouter.components.wifi.data_models import WifiCurrent, WifiNetwork
-from TravelRouter.components.wifi.system_api import get_ap_connected_devices
 
 # _____________________________ Funcs For wifi qr code ____________________________________
 
@@ -90,79 +87,19 @@ def parse_wifi_scan_rows(stdout: str) -> list[WifiNetwork]:
 # _______________________ Parse current wifi data ____________________________
 
 def parse_current_network(stdout: str) -> WifiCurrent:
-    lines = stdout.strip().split("\n")
-
-    return WifiCurrent(state=lines[0], ssid=lines[1])
-
-# _______________________ Parse connected devices to AP ________________________
-
-DNSMASQ_LEASES_PATH = "/var/lib/misc/dnsmasq.leases"
-NM_DNSMASQ_LEASES_TEMPLATE = "/var/lib/nm-dnsmasq-{interface}.leases"
-
-def ap_connected_devices(interface: str) -> list[dict]:
-
-    lease_map = {}
-    lease_paths = [NM_DNSMASQ_LEASES_TEMPLATE.format(interface=interface), DNSMASQ_LEASES_PATH]
-    lease_path = next((path for path in lease_paths if os.path.exists(path)), "")
-    if lease_path:
-        try:
-            with open(lease_path, "r", encoding="utf-8") as handle:
-                rows = handle.read().splitlines()
-            for row in rows:
-                parts = row.split()
-                if len(parts) < 4:
-                    continue
-                _expires, mac, ip, hostname = parts[:4]
-                lease_map[ip] = {
-                    "ip": ip,
-                    "mac": mac.upper(),
-                    "name": "" if hostname == "*" else hostname,
-                    "state": "lease",
-                }
-        except OSError:
-            lease_map = {}
-
-    result = get_ap_connected_devices(interface)
-    if not result.success:
-        return sorted(lease_map.values(), key=lambda device: ((device.get("name") or "").lower(), device.get("ip") or ""))
-
-    try:
-        neighbors = json.loads(result.stdout or "[]")
-    except json.JSONDecodeError:
-        neighbors = []
-
-    devices = {}
-    for entry in neighbors:
-        ip = entry.get("dst", "")
-        if not ip:
-            continue
-        state = " ".join(entry.get("state") or [])
-        if state.upper() in {"FAILED", "INCOMPLETE", "NOARP"}:
-            continue
-        mac = (entry.get("lladdr") or lease_map.get(ip, {}).get("mac") or "").upper()
-        name = lease_map.get(ip, {}).get("name") or ip
-        devices[ip] = {
-            "ip": ip,
-            "mac": mac,
-            "name": name,
-            "state": state.lower() if state else "reachable",
-        }
-
-    for ip, lease in lease_map.items():
-        devices.setdefault(
-            ip,
-            {
-                "ip": ip,
-                "mac": lease.get("mac", ""),
-                "name": lease.get("name") or ip,
-                "state": lease.get("state", "lease"),
-            },
-        )
-
-    return sorted(devices.values(), key=lambda device: ((device.get("name") or "").lower(), device.get("ip") or ""))
-
-
-
+    # stdout is: "<nmcli output>\x00<wlan operstate>\x00<eth operstate>"
+    # nmcli output has variable line count (trailing empty lines are stripped by run_command),
+    # so we use a null-byte separator to avoid off-by-one errors.
+    parts = stdout.split("\x00")
+    nmcli_lines = parts[0].strip().split("\n")
+    operstate = parts[1].strip() if len(parts) > 1 else ""
+    eth_operstate = parts[2].strip() if len(parts) > 2 else ""
+    return WifiCurrent(
+        state=nmcli_lines[0] if len(nmcli_lines) > 0 else "",
+        ssid=nmcli_lines[1] if len(nmcli_lines) > 1 else "",
+        operstate=operstate,
+        eth_operstate=eth_operstate,
+    )
 
 if __name__ == '__main__':
     print(wifi_qr_svg("test", "test"))

@@ -1,13 +1,18 @@
 import os
+from contextlib import asynccontextmanager
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from TravelRouter.components.auth import auth_api
 from TravelRouter.components.auth.auth import AuthManager
+from TravelRouter.components.drive import router as drive_router
 from TravelRouter.components.rsync import router as rsync_router
+from TravelRouter.components.rsync.api_stream import signal_shutdown
+from TravelRouter.components.rsync.system_api import job_manager
 from TravelRouter.components.settings import router as settings_router
 from TravelRouter.components.tailscale import router as tailscale_router
 from TravelRouter.components.wifi import router as wifi_router
@@ -53,7 +58,7 @@ async def _health_check() -> ApiResponse:
 APP_TITLE = "Pi Travel Router API"
 APP_DESCRIPTION = (
     "API for the Pi Travel Router web UI, including Wi-Fi, Tailscale, Jellyfin, "
-    "playback control, and rsync backups."
+    "playback control, and drive backups."
 )
 APP_VERSION = "1.0.0"
 OPENAPI_TAGS = [
@@ -66,7 +71,8 @@ OPENAPI_TAGS = [
     {"name": "media", "description": "Jellyfin browsing and playback start endpoints."},
     {"name": "remote", "description": "Playback transport and track-selection controls."},
     {"name": "playback", "description": "Playback transport and track-selection control APIs."},
-    {"name": "rsync", "description": "Drive discovery and rsync backup job management."},
+    {"name": "drive", "description": "Drive discovery and drive backup job management."},
+    {"name": "rsync", "description": "Rsync job control and live transfer progress streaming."},
 ]
 
 
@@ -76,17 +82,27 @@ def _json_api_response(status_code: int, msg, success: bool) -> JSONResponse:
 
 
 def register_exception_handlers(app: FastAPI) -> None:
-    @app.exception_handler(HTTPException)
-    async def http_exception_handler(_: Request, exc: HTTPException) -> JSONResponse:
+    async def http_exception_handler(_: Request, exc: StarletteHTTPException) -> JSONResponse:
         return _json_api_response(exc.status_code, exc.detail, False)
 
-    @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(_: Request, exc: RequestValidationError) -> JSONResponse:
         return _json_api_response(422, exc.errors(), False)
 
-    @app.exception_handler(Exception)
     async def unexpected_exception_handler(_: Request, __: Exception) -> JSONResponse:
         return _json_api_response(500, "Internal server error", False)
+
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+    app.add_exception_handler(RequestValidationError, validation_exception_handler)
+    app.add_exception_handler(Exception, unexpected_exception_handler)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    try:
+        yield
+    finally:
+        signal_shutdown()
+        job_manager.stop_all()
 
 
 def create_app() -> FastAPI:
@@ -95,6 +111,7 @@ def create_app() -> FastAPI:
         description=APP_DESCRIPTION,
         version=APP_VERSION,
         openapi_tags=OPENAPI_TAGS,
+        lifespan=lifespan,
     )
 
     auth_manager = AuthManager()
@@ -104,6 +121,7 @@ def create_app() -> FastAPI:
 
     app.include_router(_pages_router)
     app.include_router(auth_api)
+    app.include_router(drive_router)
     app.include_router(rsync_router)
     app.include_router(settings_router)
     app.include_router(tailscale_router)
@@ -113,3 +131,5 @@ def create_app() -> FastAPI:
     app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
 
     return app
+
+

@@ -11,6 +11,7 @@
   --green-dim:    rgba(63, 185, 80, 0.12);
   --yellow:       #d29922;
   --yellow-dim:   rgba(210, 153, 34, 0.12);
+  --orange:       #e8852a;
   --red:          #f85149;
   --red-dim:      rgba(248, 81, 73, 0.12);
   --text:         #e6edf3;
@@ -143,7 +144,8 @@ a:hover { text-decoration: underline; }
 
 .dot.green  { background: var(--green);  box-shadow: 0 0 6px var(--green); }
 .dot.red    { background: var(--red); }
-.dot.yellow { background: var(--yellow); }
+.dot.yellow  { background: var(--yellow); }
+.dot.orange  { background: var(--orange); box-shadow: 0 0 6px var(--orange); }
 
 .chip-label { color: var(--text-sub); }
 .chip-val   { color: var(--text); font-weight: 500; }
@@ -941,3 +943,194 @@ select {
 }
 
 .folder-row-icon { font-size: 16px; flex-shrink: 0; }
+
+/* ── Selected folder row ── */
+.folder-row.selected {
+  background: var(--accent-dim);
+  border-left: 2px solid var(--accent);
+  padding-left: 14px;
+}
+.folder-row.selected:hover { background: var(--accent-dim); }
+
+/* ── Transfer toolbar (always visible inside folder-browser) ── */
+.transfer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 16px;
+  background: var(--accent-dim);
+  border-bottom: 1px solid rgba(99,102,241,0.2);
+  font-size: 13px;
+  color: var(--text);
+  flex-wrap: wrap;
+}
+.transfer-toolbar.inactive {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--text-sub);
+}
+
+.toolbar-sel-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+  color: var(--accent);
+}
+
+/* ── Job cards ── */
+.job-card {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.job-card:last-child { border-bottom: none; }
+
+.job-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.job-icon {
+  width: 36px;
+  height: 36px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.job-info  { flex: 1; min-width: 0; }
+.job-name  { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-path  { font-size: 12px; color: var(--text-sub); margin-top: 2px; font-family: 'SF Mono','Cascadia Code','Fira Code',monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; justify-content: flex-end; }
+
+.job-status-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+  letter-spacing: 0.03em;
+}
+.job-status-badge.running   { background: var(--accent-dim);  color: var(--accent); }
+.job-status-badge.waiting   { background: var(--yellow-dim);  color: var(--yellow); }
+.job-status-badge.completed { background: var(--green-dim);   color: var(--green); }
+.job-status-badge.failed    { background: var(--red-dim);     color: var(--red); }
+.job-status-badge.stopped   { background: var(--bg-hover);    color: var(--text-sub); }
+
+/* ── Progress bar ── */
+.job-progress { margin-top: 10px; }
+
+.progress-bar {
+  height: 5px;
+  background: var(--bg-hover);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.job-progress-meta {
+  display: flex;
+  gap: 14px;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text-sub);
+  font-family: 'SF Mono','Cascadia Code','Fira Code',monospace;
+}
+
+/* ── Transfer modal (wider, left-aligned) ── */
+.modal-lg {
+  max-width: 500px;
+  text-align: left;
+}
+
+/* ── Log modal ── */
+.modal-wide {
+  max-width: 700px;
+  width: 100%;
+  text-align: left;
+}
+
+/* ── Transfer path display ── */
+.transfer-paths {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.transfer-path-box {
+  flex: 1;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tpb-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-sub);
+}
+
+.tpb-icon { font-size: 24px; line-height: 1; }
+
+.tpb-text {
+  font-size: 12px;
+  color: var(--text);
+  font-family: 'SF Mono','Cascadia Code','Fira Code',monospace;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+.transfer-arrow {
+  font-size: 18px;
+  color: var(--text-sub);
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* ── Terminal log viewer ── */
+.terminal {
+  background: #0d1117;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  font-family: 'SF Mono','Cascadia Code','Fira Code',monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  height: 360px;
+  overflow-y: auto;
+  color: #c9d1d9;
+  margin-top: 4px;
+}
+
+.terminal-line { white-space: pre-wrap; word-break: break-all; padding: 1px 0; }
+.terminal-line.is-error  { color: var(--red); }
+.terminal-line.is-warn   { color: var(--yellow); }
+.terminal-line.is-meta   { color: var(--text-sub); font-style: italic; }
+
+/* ── Responsive tweaks ── */
+@media (max-width: 560px) {
+  .transfer-paths { flex-direction: column; }
+  .transfer-arrow { align-self: center; transform: rotate(90deg); margin: -2px 0; }
+  .job-actions { gap: 6px; }
+  .modal-wide { max-height: 90vh; overflow-y: auto; }
+}

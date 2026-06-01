@@ -35,6 +35,11 @@
       <span class="chip-label">WiFi</span>
       <span class="chip-val" id="wifi-chip-val">&#x2014;</span>
     </div>
+    <div class="chip" id="eth-chip" style="display:none;">
+      <div class="dot green"></div>
+      <span class="chip-label">Cable</span>
+      <span class="chip-val">Connected</span>
+    </div>
     <div class="chip">
       <div class="dot" id="ts-dot"></div>
       <span class="chip-label">Tailscale</span>
@@ -330,9 +335,16 @@ async function pollTs() {
 // ─── UI: WiFi status chip ───────────────────────────────────────────────────
 
 function updateWifiChip(current) {
-  const connected = current && current.ssid && current.ssid !== '--';
-  document.getElementById('wifi-dot').className  = 'dot ' + (connected ? 'green' : 'red');
-  document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : 'Not connected';
+  // Use kernel operstate as the source of truth — wlan0 can be NM-connected but
+  // dormant (associated to AP but eth0 has lower metric and is handling traffic).
+  const operstate  = current && current.operstate  || '';
+  const ethUp      = current && current.eth_operstate === 'up';
+  const connected  = operstate === 'up' && current && current.ssid && current.ssid !== '--';
+  const dormant    = operstate === 'dormant';
+
+  document.getElementById('wifi-dot').className     = 'dot ' + (connected ? 'green' : dormant ? 'orange' : 'red');
+  document.getElementById('wifi-chip-val').textContent = connected ? current.ssid : dormant ? 'Dormant' : 'Not connected';
+  document.getElementById('eth-chip').style.display = ethUp ? '' : 'none';
 }
 
 // ─── UI: Network list ────────────────────────────────────────────────────────
@@ -504,6 +516,14 @@ async function doConnect(ssid, isOpen, password) {
 
 // ─── UI: Devices ─────────────────────────────────────────────────────────────
 
+function formatConnectedTime(seconds) {
+  const s = Number(seconds);
+  if (!s || isNaN(s)) return '';
+  if (s < 60)   return `${s}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+}
+
 function renderDevices(devices) {
   const body  = document.getElementById('devices-body');
   const badge = document.getElementById('dev-badge');
@@ -514,15 +534,18 @@ function renderDevices(devices) {
     return;
   }
 
-  body.innerHTML = devices.map(d => `
+  body.innerHTML = devices.map(d => {
+    const signal = d.signal_dbm ? `${esc(d.signal_dbm)} dBm` : '';
+    return `
     <div class="dev-row">
       <div class="dev-icon">&#x1F4BB;</div>
       <div class="dev-info">
-        <div class="dev-name">${esc(d.name)}</div>
-        <div class="dev-mac">${esc(d.mac)}</div>
+        <div class="dev-name">${esc(d.name || d.mac)}</div>
+        <div class="dev-mac">${esc(d.ip || d.mac)}</div>
       </div>
-      <div class="dev-ip">${esc(d.ip)}</div>
-    </div>`).join('');
+      ${signal ? `<div class="dev-ip">${signal}</div>` : ''}
+    </div>`;
+  }).join('');
 }
 
 // ─── UI: Tailscale ───────────────────────────────────────────────────────────

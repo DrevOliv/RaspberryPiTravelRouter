@@ -29,14 +29,18 @@ class WifiNetwork(BaseModel):
 
 
 class WifiCurrent(BaseModel):
-    state: str = Field(False, description="Whether the Pi is currently connected to an upstream Wi-Fi network and the state of the connected Wi-Fi network.")
+    state: str = Field("", description="NM connection state of the upstream interface.")
     ssid: str = Field("", description="Current upstream SSID.")
+    operstate: str = Field("", description="Kernel operstate of the upstream interface (up, down, dormant, etc).")
+    eth_operstate: str = Field("", description="Kernel operstate of the ethernet interface.")
 
 class ConnectedDevice(BaseModel):
-    name: str = Field("", description="Best available device label, usually a hostname or a friendly fallback.")
-    ip: str = Field("", description="IPv4 or IPv6 address seen on the private AP.")
-    mac: str = Field("", description="MAC address if available.")
-    state: str = Field("", description="Neighbor or lease state for the connected device.")
+    mac: str = Field("", description="MAC address of the connected device.")
+    ip: str = Field("", description="IP address from dnsmasq lease, if available.")
+    name: str = Field("", description="Hostname from dnsmasq lease, or MAC as fallback.")
+    signal_dbm: str = Field("", description="Signal strength in dBm as reported by hostapd.")
+    connected_time: str = Field("", description="Seconds the device has been connected.")
+    state: str = Field("", description="Connection state reported by hostapd.")
 
 
 class WifiLiveResponse(BaseModel):
