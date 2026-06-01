@@ -50,7 +50,7 @@ async def api_wifi_connect(body: WifiConnectBody):
         body.password.strip() or None,
     )
     if not result.success:
-        return ApiResponse(msg=result)
+        return ApiResponse(msg=result.stderr or "Failed to connect to Wi-Fi")
     clean_ssid = body.ssid.strip()
     return ApiResponse(success=True, msg=f"Connection to {clean_ssid} successful")
 
@@ -66,7 +66,7 @@ async def api_wifi_disconnect():
     settings = data_manager.get_data()
     result = await run_in_thread(disconnect_wifi, settings.wifi.upstream_interface)
     if not result.success:
-        return ApiResponse(msg=result)
+        return ApiResponse(msg=result.stderr or "Failed to disconnect Wi-Fi")
     return ApiResponse(success=True, msg="Wi-Fi disconnected")
 
 @router.post(
@@ -100,7 +100,7 @@ async def api_home_wifi_live():
     # Scan for other networks
     result = await run_in_thread(scan_for_wifi_networks, settings.wifi.upstream_interface)
     if not result.success:
-        return ApiResponse(msg=result)
+        return ApiResponse(msg=result.stderr or "Failed to scan for Wi-Fi networks")
 
     wifi_networks = parse_wifi_scan_rows(result.stdout)
 
@@ -144,7 +144,7 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
         return ApiResponse(msg="SSID cannot be empty")
     result = await run_in_thread(hostapd_controller.change_ap_creds, ssid=ap_ssid)
     if not result.success:
-        return ApiResponse(msg=result)
+        return ApiResponse(msg=result.stderr or "Failed to update AP SSID")
     return ApiResponse(success=True, msg="AP SSID saved")
 
 
@@ -158,5 +158,5 @@ async def api_wifi_ap_ssid(body: ApSsidBody):
 async def api_wifi_ap_password(body: ApPasswordBody):
     result = await run_in_thread(hostapd_controller.change_ap_creds, wpa_passphrase=body.ap_password.strip())
     if not result.success:
-        return ApiResponse(msg=result)
+        return ApiResponse(msg=result.stderr or "Failed to update AP password")
     return ApiResponse(success=True, msg="AP password saved")

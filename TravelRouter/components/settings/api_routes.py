@@ -1,8 +1,7 @@
 import shlex
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 
-from TravelRouter.components.auth.functions import require_api_auth
 from TravelRouter.components.settings.data_models import (
     SetRsyncDestinationRequest,
     SettingsConfigResponse,
@@ -22,7 +21,6 @@ data_manager = DataManager()
     tags=["settings"],
     summary="Get current settings",
     description="Returns the current AP SSID, AP password, saved Tailscale exit node, and rsync destination.",
-    dependencies=[Depends(require_api_auth)],
 )
 async def api_settings_config() -> ApiResponse:
     settings = data_manager.get_data()
@@ -49,7 +47,6 @@ async def api_settings_config() -> ApiResponse:
         "reachability and directory existence via SSH before saving. "
         "Requires SSH key authentication to be configured on the Pi."
     ),
-    dependencies=[Depends(require_api_auth)],
 )
 async def api_set_rsync_destination(body: SetRsyncDestinationRequest) -> ApiResponse:
     if not body.rsync_host.strip() or not body.rsync_destination.strip():
