@@ -29,6 +29,20 @@
 <div class="page">
   <div class="settings-stack">
 
+    <!-- Backup destination -->
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title"><span>&#x1F5A5;&#xFE0F;</span> Backup Destination</div>
+      </div>
+      <div style="padding:14px 16px;display:flex;flex-direction:column;gap:12px;">
+        <div id="dest-target" style="font-size:14px;color:var(--text-sub);word-break:break-all;">Loading&#x2026;</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-sm btn-ghost" id="test-conn-btn" onclick="testRemote()" disabled>&#x1F50C; Test Connection</button>
+          <button class="btn btn-sm btn-ghost" id="new-folder-btn" onclick="openNewFolderModal()" disabled>&#x1F4C1; New Folder</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Transfer Jobs -->
     <div class="card" id="jobs-card">
       <div class="card-head">
@@ -103,6 +117,23 @@
     <div style="display:flex;gap:8px;margin-top:16px;">
       <button class="btn btn-primary btn-full" id="mount-confirm-btn">Mount</button>
       <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closeMountModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- New remote folder modal -->
+<div class="modal-backdrop" id="folder-modal" style="display:none;" onclick="closeNewFolderModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h3 style="margin-bottom:6px;">New Folder on Remote</h3>
+    <p id="folder-modal-sub" style="margin-bottom:16px;color:var(--text-sub);font-size:14px;word-break:break-all;"></p>
+    <div class="field">
+      <label for="folder-name-input">Folder name</label>
+      <input type="text" id="folder-name-input" placeholder="e.g. trip_2026" maxlength="128">
+    </div>
+    <div class="hint" style="margin-top:8px;">No slashes &#x2014; a single folder is created under the destination.</div>
+    <div style="display:flex;gap:8px;margin-top:16px;">
+      <button class="btn btn-primary btn-full" id="folder-confirm-btn" onclick="confirmNewFolder()">Create</button>
+      <button class="btn btn-ghost" style="flex-shrink:0;" onclick="closeNewFolderModal()">Cancel</button>
     </div>
   </div>
 </div>
@@ -271,6 +302,85 @@ async function loadRsyncConfig() {
   if (r && r.success && r.msg) {
     rsyncConfig.rsync_host        = r.msg.rsync_host        || '';
     rsyncConfig.rsync_destination = r.msg.rsync_destination || '';
+  }
+  renderDestination();
+}
+
+function destinationConfigured() {
+  return Boolean(rsyncConfig.rsync_host && rsyncConfig.rsync_destination);
+}
+
+function renderDestination() {
+  const target  = document.getElementById('dest-target');
+  const testBtn = document.getElementById('test-conn-btn');
+  const folderBtn = document.getElementById('new-folder-btn');
+  const configured = destinationConfigured();
+
+  if (target) {
+    target.textContent = configured
+      ? `${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`
+      : 'Not configured — set it in Settings first.';
+  }
+  if (testBtn)   testBtn.disabled   = !configured;
+  if (folderBtn) folderBtn.disabled = !configured;
+}
+
+// ─── Remote connection test ─────────────────────────────────────────────────
+
+async function testRemote() {
+  if (!destinationConfigured()) { toast('Set a backup destination in Settings first', 'warning'); return; }
+
+  const btn = document.getElementById('test-conn-btn');
+  const original = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin-dark"></span> Testing…'; }
+
+  const r = await api('POST', '/rsync/remote/test');
+
+  if (btn) { btn.disabled = false; btn.innerHTML = original; }
+
+  if (r && r.success) {
+    toast((typeof r.msg === 'string' ? r.msg : null) || 'Connection OK', 'success');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Connection failed', 'error');
+  }
+}
+
+// ─── New remote folder modal ────────────────────────────────────────────────
+
+function openNewFolderModal() {
+  if (!destinationConfigured()) { toast('Set a backup destination in Settings first', 'warning'); return; }
+  document.getElementById('folder-modal-sub').textContent =
+    `Under ${rsyncConfig.rsync_host}:${rsyncConfig.rsync_destination}`;
+  const input = document.getElementById('folder-name-input');
+  input.value = '';
+  input.onkeydown = e => { if (e.key === 'Enter') confirmNewFolder(); };
+  document.getElementById('folder-modal').style.display = 'flex';
+  setTimeout(() => input.focus(), 80);
+}
+
+function closeNewFolderModal(e) {
+  if (!e || e.target === document.getElementById('folder-modal')) {
+    document.getElementById('folder-modal').style.display = 'none';
+  }
+}
+
+async function confirmNewFolder() {
+  const name = document.getElementById('folder-name-input').value.trim();
+  if (!name) { toast('Enter a folder name', 'warning'); return; }
+  if (name.includes('/')) { toast('Folder name cannot contain slashes', 'warning'); return; }
+
+  const btn = document.getElementById('folder-confirm-btn');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
+
+  const r = await api('POST', '/rsync/remote/folder', { name });
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Create'; }
+
+  if (r && r.success && r.msg && r.msg.path) {
+    closeNewFolderModal();
+    toast(`Created ${r.msg.path}`, 'success');
+  } else {
+    toast((r && typeof r.msg === 'string' ? r.msg : null) || 'Could not create folder', 'error');
   }
 }
 
