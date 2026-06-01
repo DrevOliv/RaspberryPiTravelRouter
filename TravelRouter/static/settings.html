@@ -153,6 +153,17 @@
           <div id="exit-status"></div>
         </div>
       </div>
+      <div class="form-section">
+        <div class="section-title">Subnet routes</div>
+        <div class="form-gap">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="accept-routes-toggle" onchange="setAcceptRoutes(this.checked)">
+            <span>Accept advertised subnet routes</span>
+          </label>
+          <p class="hint">Enable to reach subnets that other Tailscale nodes advertise.</p>
+          <div id="accept-routes-status"></div>
+        </div>
+      </div>
     </div>
 
     <!-- ── Backup Destination ── -->
@@ -373,6 +384,27 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
   await api('POST', '/api/auth/logout');
   window.location.href = '/login';
 });
+
+// ─── Tailscale subnet routes (accept-routes) ─────────────────────────────────
+
+async function loadAcceptRoutes() {
+  const el = document.getElementById('accept-routes-toggle');
+  if (!el) return;
+  const r = await api('GET', '/tailscale/accept-routes');
+  const ok = r && r.success && r.msg;
+  el.disabled = !(ok && r.msg.available);
+  el.checked  = !!(ok && r.msg.accept_routes);
+}
+
+async function setAcceptRoutes(enable) {
+  const r = await api('POST', '/tailscale/accept-routes', { enable });
+  if (r && r.success) {
+    setStatus('accept-routes-status', (typeof r.msg === 'string' ? r.msg : 'Saved'), true);
+  } else {
+    setStatus('accept-routes-status', (r && typeof r.msg === 'string' ? r.msg : null) || 'Could not update', false);
+    void loadAcceptRoutes();   // revert the toggle to the real state
+  }
+}
 
 // ─── Load Tailscale exit nodes ───────────────────────────────────────────────
 
@@ -856,6 +888,7 @@ function startSettingsPage() {
   void loadApConfig();
   void loadDiagnostics();
   void loadExitNodes();
+  void loadAcceptRoutes();
   void loadSshKey();
   void checkHealth();
 

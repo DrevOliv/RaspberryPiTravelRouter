@@ -16,3 +16,7 @@ class TailscaleStatus(BaseModel):
 
 class ExitNodeSelectionBody(BaseModel):
     exit_node: str = Field("", description="Preferred Tailscale exit node DNS name or IP to save in settings.")
+
+
+class AcceptRoutesBody(BaseModel):
+    enable: bool = Field(..., description="Whether to accept subnet routes advertised by other Tailscale nodes.")

@@ -5,16 +5,19 @@ from TravelRouter.helpers.api_response import ApiResponse
 from TravelRouter.helpers.run_command import run_in_thread
 
 from TravelRouter.components.tailscale.data_models import (
+    AcceptRoutesBody,
     ExitNodeSelectionBody,
     TailscaleStatus,
 )
 
-from TravelRouter.components.tailscale.functions import parse_tailscale_status
+from TravelRouter.components.tailscale.functions import parse_accept_routes, parse_tailscale_status
 
 from TravelRouter.components.tailscale.system_api import (
     tailscale_status,
     tailscale_set_exit_node,
     tailscale_disable_exit_node,
+    tailscale_set_accept_routes,
+    tailscale_prefs,
     tailscale_up,
     tailscale_down,
 )
@@ -143,3 +146,37 @@ async def api_tailscale_down():
         return ApiResponse(msg=f"error setting tailscale to down: {status.stderr}")
 
     return await get_tailscale_status()
+
+
+@router.get(
+    "/tailscale/accept-routes",
+    response_model=ApiResponse,
+    tags=["tailscale"],
+    summary="Get accept-routes state",
+    description="Whether this device accepts subnet routes advertised by other Tailscale nodes.",
+)
+async def api_get_accept_routes():
+    result = await run_in_thread(tailscale_prefs)
+    return ApiResponse(
+        success=True,
+        msg={
+            "available": result.success,
+            "accept_routes": parse_accept_routes(result.stdout) if result.success else False,
+        },
+        msg_type="json",
+    )
+
+
+@router.post(
+    "/tailscale/accept-routes",
+    response_model=ApiResponse,
+    tags=["tailscale"],
+    summary="Enable or disable accept-routes",
+    description="Turns accepting advertised subnet routes on or off (tailscale set --accept-routes).",
+)
+async def api_set_accept_routes(body: AcceptRoutesBody):
+    result = await run_in_thread(tailscale_set_accept_routes, body.enable)
+    if not result.success:
+        return ApiResponse(msg=f"error updating accept-routes: {result.stderr}")
+
+    return ApiResponse(success=True, msg="Subnet routes " + ("enabled" if body.enable else "disabled"))

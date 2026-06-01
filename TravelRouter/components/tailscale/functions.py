@@ -3,6 +3,14 @@ import json
 from TravelRouter.components.tailscale.data_models import ExitNodeServer, TailscaleStatus
 
 
+def parse_accept_routes(stdout: str) -> bool:
+    """Read the --accept-routes pref (RouteAll) from `tailscale debug prefs` JSON."""
+    try:
+        return bool(json.loads(stdout or "{}").get("RouteAll", False))
+    except json.JSONDecodeError:
+        return False
+
+
 def _self_online(self_data: dict) -> bool:
     return bool(self_data.get("Online", False))
 

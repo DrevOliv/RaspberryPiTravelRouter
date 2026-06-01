@@ -17,3 +17,9 @@ def tailscale_set_exit_node(ip_address: str)->CmdStatus:
 def tailscale_disable_exit_node()->CmdStatus:
     return run_command(["sudo", "tailscale", "set", "--exit-node="])
 
+def tailscale_set_accept_routes(enable: bool)->CmdStatus:
+    return run_command(["sudo", "tailscale", "set", f"--accept-routes={'true' if enable else 'false'}"])
+
+def tailscale_prefs()->CmdStatus:
+    return run_command(["tailscale", "debug", "prefs"])
+
